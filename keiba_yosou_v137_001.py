@@ -38,7 +38,7 @@
 #     紐は『◎が勝ったときに2・3着に来る馬』なので、(複勝確率−単勝確率)=2〜3着に来る確率を土台に、
 #     市場より来ると見ている分(複勝確率 ÷ オッズ勝率から見た複勝確率)の妙味を √ で掛ける。
 #   【軸馬指数】= 連対確率(2着以内に来る確率%)。◎ はこの1位。○▲△ は v136_010 の方式
-#     (◎との馬連確率 × 妙味、λ=1)。穴 = 補正前人気4〜9位で 単勝確率がオッズ勝率の1.3倍以上・複勝確率25%以上。
+#     (◎との馬連確率 × 妙味、λ=2)。穴 = 補正前人気4〜9位で 単勝確率がオッズ勝率の1.3倍以上・複勝確率25%以上。
 #   【単指数・複指数】は使わない(予想CSVが無いので存在しない)。
 #
 #   【本線枠(新条件・未検証)】旧 UR1/UR2/WD1 は単指数を使うため廃止し、単指数90 の役を
@@ -53,7 +53,7 @@
 #
 #   【出力列の置き換え】(列の数・並びは v136_021 と同じ)
 #     研究用HTML: 騎手補正→騎手指数 / 単指数→前売(補正前単勝オッズ) / 複指数→人気O(人気オッズ) /
-#                 融合%→オッズ%(オッズ勝率)。単オッズ=予想オッズ、人気=予想オッズの順。脚質は元データが無いので『-』。
+#                 融合%→オッズ%(オッズ勝率)。単オッズ=予想オッズ、人気=予想オッズの順。脚質は出馬表HTMLから取得(取れない馬は『-』)。
 #     Excel/CSV も同じ置き換え。keiba_tool008 で列名を見ている場合は読み替えが必要。
 #     版情報 meta: bado-version=v137_001 / bado-logic に prob=odds+stat;honsen=ens1。
 #
@@ -982,9 +982,10 @@ def _stat_block_html(analysis):
     return ('<div class="srow"><span class="stag">統計予想（統計勝率のみ・参考・実弾外）</span>'
             '<span class="smk">%s</span><br><span class="sbt">参考買い目 %s</span>%s</div>' % (_mk, _bt, _extra))
 REF_N_PARTNERS = 3             # 参考買い目の点数(=○▲△の頭数)
-# 妙味の重み λ。★v137_001: 4.0→1.0。単勝確率に統計勝率が入ると人気薄ほど市場より高く出るため、
-#   λ=4 では ○▲△ の7割が8番人気以下になった(9/29 59R の試算)。λ=1(v136_010 の的中重視)に戻す。
-REF_VALUE_LAMBDA = _gz_env_num('REF_VALUE_LAMBDA', 1.0, float)
+# 妙味の重み λ。★v137_001: 4.0→1.0→2.0。λ=4は人気薄に寄りすぎ(9/29 59R試算で○▲△の7割が
+#   8番人気以下)、λ=1は9/27-28の2日68R集計で妙味を効かせなさすぎた(λ=2の方が馬連ワイドとも
+#   回収率が上回った)。9/27-28の的中実績で比較検証済み。日を追えて再検証すること。
+REF_VALUE_LAMBDA = _gz_env_num('REF_VALUE_LAMBDA', 2.0, float)
 REF_PARTNER_MARKS = ('○', '▲', '△')
 # 本線枠/次点本線枠が既に買っている組を参考から除くか。
 #   False(既定): 参考買い目は常に ◎-○/▲/△ の3点(印と完全連動)。
@@ -1929,6 +1930,88 @@ def _deba_meta(race):
     return post, dist
 
 
+_LEG_CHARS = ('逃', '先', '差', '追')
+_LEG_KEYS = ('脚質', 'leg', 'leg_style', 'style', 'run_style', 'running_style')
+
+
+def _leg_of_horse(h):
+    """horse dict(出馬表HTMLパーサが持つ値)から脚質(逃/先/差/追)を取れれば返す。無ければ None。"""
+    if not isinstance(h, dict):
+        return None
+    for k in _LEG_KEYS:
+        v = str(h.get(k) or '').strip()
+        v = unicodedata.normalize('NFKC', v)[:1]
+        if v in _LEG_CHARS:
+            return v
+    return None
+
+
+def _deba_leg_styles(race):
+    """出馬表HTML(DebaRace)から {馬番: 脚質(逃/先/差/追)} を返す(取れない馬は含めない)。
+    ★v137_001: horselist/オッズCSVに脚質の列が無いため、出馬表HTMLから拾う。
+      1) race.horses の各馬dictが脚質を持っていれば(bado_stat_model側の解析結果)それを使う。
+      2) 無ければ raw HTML を馬名の位置で読み、その近傍で『セルの中身が脚質の1文字だけ』
+         というマークアップ(逃/先/差/追などの表記でよくある形)を探す(誤爆を避けるため
+         "1文字だけのセル"に限定。取れなければ空のまま=表示は'-')。
+    どちらも失敗してもレースを落とさない(空dictを返す)。"""
+    out = {}
+    if race is None:
+        return out
+    horses = list(getattr(race, 'horses', None) or [])
+    if not horses:
+        return out
+    for h in horses:
+        try:
+            uma = int(h.get('uma'))
+        except Exception:
+            continue
+        lg = _leg_of_horse(h)
+        if lg:
+            out[uma] = lg
+    if len(out) == len(horses):
+        return out                                   # 全馬取れたので raw HTML は見なくてよい
+    try:
+        _path = getattr(race, 'path', None)
+        if not (_path and _os.path.exists(str(_path))):
+            return out
+        _raw = open(str(_path), 'rb').read()
+        _txt = None
+        for _enc in ('utf-8', 'cp932', 'euc_jp'):
+            try:
+                _txt = _raw.decode(_enc)
+                break
+            except Exception:
+                continue
+        if not _txt:
+            return out
+        # 馬名の出現位置を手掛かりに、次の馬名までの間(無ければ1200字先まで)で
+        # 『セルの中身が脚質1文字だけ』の <td>逃</td> 等を探す。
+        _pos = []
+        for h in horses:
+            try:
+                uma = int(h.get('uma'))
+            except Exception:
+                continue
+            if uma in out:
+                continue
+            nm = str(h.get('name') or '')
+            if not nm:
+                continue
+            _m = re.search(re.escape(nm), _txt)
+            if _m:
+                _pos.append((_m.start(), uma))
+        _pos.sort()
+        for _k, (idx, uma) in enumerate(_pos):
+            end = _pos[_k + 1][0] if _k + 1 < len(_pos) else idx + 1200
+            window = _txt[idx:end]
+            _m = re.search(r'<t[dh][^>]*>\s*([逃先差追])\s*</t[dh]>', window)
+            if _m:
+                out[uma] = _m.group(1)
+    except Exception:
+        pass
+    return out
+
+
 def _deba_autoload(folder):
     """出馬表HTMLが未読込で、オッズCSVのフォルダ(またはサブフォルダ)に R??_*.html があれば読む。"""
     if STAT_DEBA_RACES or _bsm is None or not folder:
@@ -2016,6 +2099,13 @@ def read_racecard_csv(path, require_cols=None):
     if not rows:
         raise ValueError('単勝オッズCSVにレースID・馬番の揃った行がありません。')
     df = pd.DataFrame(rows)
+    # ★v137_001: 帯広(ばんえい競走)は他場と競走形態が違う(重量そりを曳く輓曳競走)ため予想しない。
+    _n_obihiro = int((df['場所'] == '帯広').sum())
+    if _n_obihiro:
+        df = df[df['場所'] != '帯広'].reset_index(drop=True)
+        print(f'  [帯広除外] 帯広(ばんえい競走) {_n_obihiro}頭を予想対象から除外しました。')
+    if df.empty:
+        raise ValueError('帯広以外に予想できるレースがありません。')
     if CURRENT_RACECARD_DATE is None or CURRENT_RACECARD_DATE not in set(df['日付']):
         CURRENT_RACECARD_DATE = int(df['日付'].mode().iloc[0])
         stat_set_target_date(str(CURRENT_RACECARD_DATE))
@@ -2094,9 +2184,10 @@ def read_racecard_csv(path, require_cols=None):
     sd = gj.transform(lambda s: s.std(ddof=0)).replace(0, np.nan)
     df['騎手指数'] = (50.0 + 10.0 * (jraw - gj.transform('mean')) / sd).fillna(50.0).clip(0, 100).round(1)
 
-    # ── 発走時刻・距離(出馬表HTML。レース情報列に書かれていればそれも使う) ──
+    # ── 発走時刻・距離・脚質(出馬表HTML。レース情報列に書かれていればそれも使う) ──
     df['出走時刻'] = ''
     df['距離'] = ''
+    n_leg = 0
     for rk, grp in df.groupby('_rk', sort=False):
         i0 = grp.index[0]
         post, dist = '', ''
@@ -2113,13 +2204,20 @@ def read_racecard_csv(path, require_cols=None):
                                         {int(b): str(n) for b, n in zip(grp['番'], grp['馬名'])})
                 _p2, _d2 = _deba_meta(_race)
                 post, dist = (post or _p2), (dist or _d2)
+                _leg = _deba_leg_styles(_race)         # ★v137_001: {馬番: 逃/先/差/追}
+                if _leg:
+                    for i in grp.index:
+                        _b = _to_int_z2h(df.at[i, '番'])
+                        if _b in _leg:
+                            df.at[i, '展開'] = _leg[_b]
+                            n_leg += 1
             except Exception:
                 pass
         df.loc[grp.index, '出走時刻'] = post
         df.loc[grp.index, '距離'] = dist
     n_hl = int(df['hl'].sum())
     print(f'[入力] {Path(str(path)).name}: {df["_rk"].nunique()}R {len(df)}頭 / horselist結合 {n_hl}/{len(df)} / '
-          f'騎手変更 {int((df["騎手_旧"] != "").sum())} / 出馬表HTML {stat_summary()}')
+          f'騎手変更 {int((df["騎手_旧"] != "").sum())} / 脚質判明 {n_leg}/{len(df)} / 出馬表HTML {stat_summary()}')
     return df.drop(columns=['_t', '_q', 'レース情報'])
 
 
@@ -3118,9 +3216,7 @@ def build_html_note(html_races, src_name):
             wp = _f(row.get('単勝確率'), 0.0)
             fp = _f(row.get('複勝確率'), 0.0)
             ev = _f(row.get('単勝期待値'), 0.0)
-            ti = _f(row.get('前売オッズ'))      # ★v137_001: 前売(補正前単勝オッズ)
-            fi = _f(row.get('人気オッズ'))      # ★v137_001: 人気オッズ
-            _op = _f(row.get('オッズ勝率'))
+            # ★v137_001: note版は前売(補正前単勝オッズ)・人気オッズを表示しない(単勝オッズと軸馬/紐馬指数のみ)。
             od = _f(row.get('単勝オッズ'), 0.0)
             ens = _f(row.get('軸馬指数'))
             himo = _f(row.get('紐馬指数'))
@@ -3151,11 +3247,8 @@ def build_html_note(html_races, src_name):
                 + '<td class="g1">%s</td>' % _note_bar(wp, 'w' + (' hi' if wp >= 40 else ''), 60.0)
                 + '<td>%s</td>' % _note_bar(fp, 'p' + (' hi' if fp >= 70 else ''), 100.0)
                 + '<td class="num%s">%.0f</td>' % (' hot' if ev >= 110 else '', ev)
-                + '<td class="num g1%s">%s</td>' % (' hot' if (_op and wp >= 1.15 * _op and wp >= 5.0) else '',
-                                                    ('%.1f' % ti) if ti is not None and ti > 0 else '-')
-                + '<td class="num%s">%s</td>' % (' anav' if is_ana else '',
-                                                 ('%.1f' % fi) if fi is not None and fi > 0 else '-')
-                + '<td class="num">%s</td>' % (('%.1f' % ens) if ens is not None else '-')
+                + '<td class="num g1%s">%s</td>' % (' anav' if is_ana else '',
+                                                    ('%.1f' % ens) if ens is not None else '-')
                 + '<td class="num">%s</td>' % (('%.0f' % himo) if himo is not None else '-')
                 + '<td class="num%s">%s</td>' % (' hot' if (kdev or 0) >= 60 else '',
                                                  ('%.1f' % kdev) if kdev is not None else '-')
@@ -3273,9 +3366,9 @@ def build_html_note(html_races, src_name):
               '<tr class="grp"><th class="sk sk1" rowspan="2">印<br>馬番</th>'
               '<th class="sk sk2 l" rowspan="2">馬名<br><small>性齢 斤量 騎手</small></th>'
               '<th rowspan="2">脚質</th><th colspan="2" class="g1">オッズ</th>'
-              '<th colspan="3" class="g1">予測(オッズ×統計)</th><th colspan="5" class="g1">オッズ・指数</th></tr>'
+              '<th colspan="3" class="g1">予測(オッズ×統計)</th><th colspan="3" class="g1">指数</th></tr>'
               '<tr><th class="g1">人気</th><th>単勝</th><th class="g1">勝率%</th><th>複勝率%</th><th>期待値</th>'
-              '<th class="g1">前売</th><th>人気O</th><th>軸馬</th><th>紐馬</th><th>騎手<br>指数</th></tr></thead><tbody>'
+              '<th class="g1">軸馬</th><th>紐馬</th><th>騎手<br>指数</th></tr></thead><tbody>'
             + ''.join(trs) + '</tbody></table></div>'
             + '<div class="buys">%s</div></section>' % ''.join(buys))
 
@@ -3308,15 +3401,13 @@ def build_html_note(html_races, src_name):
         '<dt>単勝</dt><dd>予想オッズ。前売の単勝オッズと、人気になりそうな要素(騎手・成績・当地実績・最高タイム)から'
         '推定したオッズを合わせたもの。人気はこの順番です。</dd>'
         '<dt>期待値</dt><dd>勝率×予想オッズ。100を超えるほど、オッズに対して割安な馬です。</dd>'
-        '<dt>前売</dt><dd>前売の単勝オッズ(補正前)。<span class="hot">緑の太字</span>は勝率が前売オッズの評価より高い馬。</dd>'
-        '<dt>人気O</dt><dd>人気になりそうな要素だけから推定した単勝オッズ。<span class="anav">橙色</span>は穴候補の馬。</dd>'
-        '<dt>軸馬</dt><dd>軸馬指数。2着以内に入る推定確率(%)。◎はこの1位です。</dd>'
+        '<dt>軸馬</dt><dd>軸馬指数。2着以内に入る推定確率(%)。◎はこの1位です。<span class="anav">橙色</span>は穴候補の馬。</dd>'
         + ('<dt>○▲△</dt><dd>◎との組み合わせで、当たりやすさに加えて「配当の妙味」を重視して選んだ3頭。参考買い目(◎から馬連・ワイド各3点)の相手です。</dd>' if REF_NEW_LOGIC else '') +
         '<dt>紐馬</dt><dd>紐馬指数(0〜100)。2〜3着に来る確率に、オッズより来ると見ている分の妙味を掛けたもの'
         '(そのレースで最も紐向きの馬が100)。推奨買い目の相手選びに使います。</dd>'
         '<dt>騎手指数</dt><dd>騎手の評価を偏差値で表したもの(50が平均)。その日に乗る他の馬の人気・騎乗数・減量騎手・'
         'この馬とのコンビ成績から計算。60以上は好騎手。</dd>'
-        '<dt>緑の太字</dt><dd>注目の値(期待値110以上・前売より勝率が高い・騎手指数60以上)。</dd>'
+        '<dt>緑の太字</dt><dd>注目の値(期待値110以上・騎手指数60以上)。</dd>'
         + ('<dt>軸級 S〜D</dt><dd>◎が1着になる推定確率の区分。%s / D=それ未満。</dd>'
            '<dt>信頼度</dt><dd>◎が3着以内に入る推定確率(%%)。%s。</dd>'
            % (' / '.join('%s=%g%%以上' % (_g, _c) for _g, _c in JUDGE_GRADE_CUTS),
