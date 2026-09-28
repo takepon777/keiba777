@@ -517,6 +517,12 @@ def _to_int_z2h(v):
     except Exception:
         return None
 
+def _race_no_of(v):
+    """'1R' / '１０Ｒ' / 3 → レース番号 int。_to_int_z2h は 'R' 付きだと None になるため別に用意。"""
+    m = re.search(r'\d+', unicodedata.normalize('NFKC', str(v)))
+    return int(m.group()) if m else v
+
+
 def _norm_venue_hl(v):
     s = str(v).strip()
     if s.endswith('ば') and len(s) > 1:
@@ -1234,9 +1240,13 @@ def _apply_jockey_changes(group):
         new_disp = re.sub(r'\s', '', unicodedata.normalize('NFKC', new))
         old_idx = group.at[idx, '騎手指数'] if '騎手指数' in group.columns else None
         new_idx = _jockey_day_idx(venue, new_disp)
-        group.at[idx, '騎手'] = new_disp + JK_CHANGE_MARK
         if new_idx is not None and '騎手指数' in group.columns:
+            # 騎手指数列が int64 だと中央値(69.5 等)を代入できず pandas 3 で TypeError になり、
+            #   騎手名だけ『※』に変わって指数は旧騎手のまま・変更一覧も空、という半端な状態になっていた。
+            if not pd.api.types.is_float_dtype(group['騎手指数']):
+                group['騎手指数'] = pd.to_numeric(group['騎手指数'], errors='coerce').astype(float)
             group.at[idx, '騎手指数'] = new_idx
+        group.at[idx, '騎手'] = new_disp + JK_CHANGE_MARK
         out.append(dict(ban=_to_int_z2h(group.at[idx, '番']), name=str(group.at[idx, '馬名']),
                         old=old, new=new_disp,
                         idx_old=(float(old_idx) if old_idx is not None and old_idx == old_idx else None),
@@ -3282,7 +3292,7 @@ def generate_analysis(group):
         _dq_jk = []
     try:
         _dq_label = '%s%sR' % (re.sub(r'\s', '', unicodedata.normalize('NFKC', str(group['場所'].iloc[0]))),
-                               _to_int_z2h(group['レース'].iloc[0]))
+                               _race_no_of(group['レース'].iloc[0]))
     except Exception:
         _dq_label = ''
     # ★NaN防御(v104): 通常はCSV読込で0埋め済みだが、generate_analysis を直接呼ぶ場合に
@@ -6966,6 +6976,9 @@ def _run_output(grouped, output_csv, excel_path):
                             if _tb is not None:
                                 _kdev_map[_tb] = _tr.get(KISHU_DEV_COL, '')
                     _extras = {}
+                    # 騎手変更(horselist)で差し替えた騎手指数。group は元CSVのままなので上書きする。
+                    _jk_new_idx = {c['ban']: c['idx_new'] for c in (analysis.get('dq_jk') or [])
+                                   if c.get('idx_new') is not None}
                     for _, _gr in group.iterrows():
                         _b = _to_int_z2h(_gr.get('番'))
                         if _b is None:
@@ -6975,7 +6988,7 @@ def _run_output(grouped, output_csv, excel_path):
                             seirei=str(_gr.get('性齢', '') or ''),
                             kinryo=(str(_gr.get('斤量', '') or '')
                                     if '斤量' in group.columns else ''),
-                            kishu_idx=(int(float(_gr.get('騎手指数', 0) or 0))
+                            kishu_idx=(int(float(_jk_new_idx.get(_b, _gr.get('騎手指数', 0)) or 0))
                                        if '騎手指数' in group.columns else ''),
                             # ★v135_006: 表示専用の補正騎手指数(偏差値)
                             #   analysis['table'] 由来のマップから取得する
@@ -7527,7 +7540,7 @@ def _run_output(grouped, output_csv, excel_path):
                     # ★ 最初の失敗はコンソールに完全なトレースバックを出す(モデル未検出等の根本原因特定用)
                     # ★v136_021: 全件記録し、予想表HTMLの先頭とGUIに出す(旧版は最初の1件だけ表示)
                     try:
-                        RUN_ERRORS.append('%s %sR: %s: %s' % (name[0], _to_int_z2h(name[2]), type(e).__name__, e))
+                        RUN_ERRORS.append('%s %sR: %s: %s' % (name[0], _race_no_of(name[2]), type(e).__name__, e))
                     except Exception:
                         RUN_ERRORS.append(f'{name}: {type(e).__name__}: {e}')
                     print(f"[RACE ERROR] {_msg}")
