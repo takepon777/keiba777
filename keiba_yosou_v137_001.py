@@ -1930,46 +1930,59 @@ def _deba_meta(race):
     return post, dist
 
 
-_LEG_CHARS = ('逃', '先', '差', '追')
-_LEG_KEYS = ('脚質', 'leg', 'leg_style', 'style', 'run_style', 'running_style')
+_LEG_ORDER = ('逃', '先', '差', '追')
+# 出馬表HTML『母馬名』の行(馬主名と並べて、各過去走のタイム・コーナー通過順・上がり3Fが
+# 入っている特殊なレイアウト。実物で確認済み)。例: "1:00.6　7-9　37.2"(タイム/コーナー通過順/上がり3F)。
+_PAST_TIME_RE = re.compile(r'(\d{1,2}):(\d{2})\.(\d)[\u3000\s]+([\d\-]+)[\u3000\s]+(\d{1,2})\.(\d)')
+_HORSE_NUM_RE = re.compile(r'class="horseNum">([^<]*)</td>')
+_FIELD_SIZE_RE = re.compile(r'(\d{1,2})頭')          # raceInfo(着順+日付+馬場+頭数)の頭数
 
 
-def _leg_of_horse(h):
-    """horse dict(出馬表HTMLパーサが持つ値)から脚質(逃/先/差/追)を取れれば返す。無ければ None。"""
-    if not isinstance(h, dict):
+def _corner_positions(raw):
+    """'7-9' / '1-1-4-4' → [7,9] / [1,1,4,4](コーナー通過順=スタートからの位置取り)。"""
+    return [int(x) for x in re.split(r'-', raw) if x.strip().isdigit()]
+
+
+def _leg_style_of_run(field, pos, last3f):
+    """1走分の脚質を推定。pos=コーナー通過順(先頭が最初の通過点)、field=その走の出走頭数。
+    ・平均通過順位(÷頭数)が浅い(前めにいた)ほど逃げ・先行寄り。
+    ・道中の進出量(最初の通過順 − 最後の通過順、÷頭数)が大きければ差し、小さければ追込。
+    last3f は現状の判定式では未使用(タイム・頭数の異なる過去走間で単純比較できないため)だが、
+    データとして保持し将来の精緻化(道中ペースとの相対比較等)に使えるようにしてある。"""
+    if not pos or not field or field < 2:
         return None
-    for k in _LEG_KEYS:
-        v = str(h.get(k) or '').strip()
-        v = unicodedata.normalize('NFKC', v)[:1]
-        if v in _LEG_CHARS:
-            return v
-    return None
+    ratio_avg = (sum(pos) / len(pos)) / field
+    move_up = (pos[0] - pos[-1]) / field       # 正 = 道中で順位を上げた(差し/追込寄り)
+    if ratio_avg <= 0.20:
+        return '逃'
+    if ratio_avg <= 0.45:
+        return '先'
+    return '差' if move_up >= 0.15 else '追'
+
+
+def _leg_style_from_runs(runs):
+    """runs = [(頭数, コーナー通過順list, 上がり3F), ...](先頭が最新走)。
+    直近最大3走ぶんの脚質を多数決で決める(同数は最新走を優先)。判定できる過去走が
+    無ければ空文字を返す(表示は'-')。"""
+    labels = [lb for lb in (_leg_style_of_run(*r) for r in runs[:3]) if lb]
+    if not labels:
+        return ''
+    counts = {lb: labels.count(lb) for lb in _LEG_ORDER}
+    top = max(counts.values())
+    cands = {lb for lb in _LEG_ORDER if counts[lb] == top}
+    return next(lb for lb in labels if lb in cands)    # labels は新しい順 → 最新走を優先
 
 
 def _deba_leg_styles(race):
-    """出馬表HTML(DebaRace)から {馬番: 脚質(逃/先/差/追)} を返す(取れない馬は含めない)。
-    ★v137_001: horselist/オッズCSVに脚質の列が無いため、出馬表HTMLから拾う。
-      1) race.horses の各馬dictが脚質を持っていれば(bado_stat_model側の解析結果)それを使う。
-      2) 無ければ raw HTML を馬名の位置で読み、その近傍で『セルの中身が脚質の1文字だけ』
-         というマークアップ(逃/先/差/追などの表記でよくある形)を探す(誤爆を避けるため
-         "1文字だけのセル"に限定。取れなければ空のまま=表示は'-')。
-    どちらも失敗してもレースを落とさない(空dictを返す)。"""
+    """出馬表HTML(DebaRace)から {馬番: 脚質(逃/先/差/追)} を、各馬の直近走の
+    タイム・コーナー通過順(スタートからの位置取り)・上がり3Fタイムから算出して返す
+    (出馬表HTMLに脚質そのものの記載は無いため、この3値から推定する)。
+    raw HTML を『class="horseNum">N</td>』の出現位置で馬ごとのブロックに切り、
+    ブロック内の raceInfo(頭数)と タイム・コーナー通過順・上がり3F(同じ並び順)を
+    対応づける。取得・算出に失敗してもレースを落とさない(空dictを返す)。"""
     out = {}
     if race is None:
         return out
-    horses = list(getattr(race, 'horses', None) or [])
-    if not horses:
-        return out
-    for h in horses:
-        try:
-            uma = int(h.get('uma'))
-        except Exception:
-            continue
-        lg = _leg_of_horse(h)
-        if lg:
-            out[uma] = lg
-    if len(out) == len(horses):
-        return out                                   # 全馬取れたので raw HTML は見なくてよい
     try:
         _path = getattr(race, 'path', None)
         if not (_path and _os.path.exists(str(_path))):
@@ -1984,35 +1997,30 @@ def _deba_leg_styles(race):
                 continue
         if not _txt:
             return out
-        # 馬名の出現位置を手掛かりに、次の馬名までの間(無ければ1200字先まで)で
-        # 『セルの中身が脚質1文字だけ』の <td>逃</td> 等を探す。
-        _pos = []
-        for h in horses:
-            try:
-                uma = int(h.get('uma'))
-            except Exception:
-                continue
-            if uma in out:
-                continue
-            nm = str(h.get('name') or '')
-            if not nm:
-                continue
-            _m = re.search(re.escape(nm), _txt)
-            if _m:
-                _pos.append((_m.start(), uma))
-        _pos.sort()
-        for _k, (idx, uma) in enumerate(_pos):
-            end = _pos[_k + 1][0] if _k + 1 < len(_pos) else idx + 1200
-            window = _txt[idx:end]
-            _m = re.search(r'<t[dh][^>]*>\s*([逃先差追])\s*</t[dh]>', window)
-            if _m:
-                out[uma] = _m.group(1)
+        _idxs = [(m.start(), m.group(1)) for m in _HORSE_NUM_RE.finditer(_txt)]
+        _idxs = [(pos, n) for pos, n in _idxs if n.isdigit()]      # 見出し行(『馬番』)を除く
+        for _k, (pos, numstr) in enumerate(_idxs):
+            end = _idxs[_k + 1][0] if _k + 1 < len(_idxs) else len(_txt)
+            block = _txt[pos:end]
+            fields = [int(x) for x in _FIELD_SIZE_RE.findall(block)]   # 各過去走の出走頭数(前走→)
+            runs = []
+            for m in _PAST_TIME_RE.finditer(block):
+                corner = _corner_positions(m.group(4))
+                if not corner:
+                    continue
+                fsz = fields[len(runs)] if len(runs) < len(fields) else None
+                if fsz:
+                    runs.append((fsz, corner, float('%s.%s' % (m.group(5), m.group(6)))))
+            lg = _leg_style_from_runs(runs)
+            if lg:
+                out[int(numstr)] = lg
     except Exception:
         pass
     return out
 
 
 def _deba_autoload(folder):
+
     """出馬表HTMLが未読込で、オッズCSVのフォルダ(またはサブフォルダ)に R??_*.html があれば読む。"""
     if STAT_DEBA_RACES or _bsm is None or not folder:
         return
