@@ -44,24 +44,20 @@
 #     ◎は従来どおり連対確率(2着以内に来る確率)1位。○▲△ は v136_010 の方式
 #     (◎との馬連確率 × 妙味、λ=2)。穴 = 補正前人気4〜9位で 単勝確率がオッズ勝率の1.27倍以上・複勝確率25%以上。
 #
-#   【本線枠(新条件・未検証)】旧 UR1/UR2/WD1 は(旧)外部AIの単指数90を使っていたため廃止し、その役を
-#     『統計勝率』(オッズと独立した評価)に置き換えた同じ形の条件にした。成績の裏付けはまだ無い。
-#       (以下の確率の基準値は ENS_W_ODDS/STAT=0.75/0.50 に尖らせた後の値。旧 0.70/0.30 では 45/50/50・8/45/40/15)
-#       EU1 馬連① 軸=単勝確率最大(52%以上)・統計勝率35%以上・予想オッズ1.9倍以下 × 単勝確率6.5以上→紐馬指数1位
-#       EU2 馬連② 同じ軸で予想オッズ1.4倍以下 × 人気3以内&紐馬指数50以上→紐馬指数1位
-#       EW1 ワイド① 軸=単勝確率62%以上の最大・人気1・統計勝率50%以上 × 複勝確率50以上&統計勝率10以上→紐馬指数1位
-#     次点本線枠(表示のみ): XW1 ワイド(EU1軸 × 複勝確率42.5以上&予想オッズ30倍以内)/
-#                           XU1 馬連(単勝確率58%以上最大・予想オッズ1.9倍以下 × 単勝確率13以上&紐馬指数60以上)
-#     参考予想(◎→○▲△ 馬連・ワイド各3点)・統計予想・統計裏付け(軸の統計勝率50%以上)は従来どおり表示。
-#     観察条件 ST1〜ST6 は旧軸に依存するため停止。軸級・信頼度・レース分類は ◎ の単勝確率/複勝確率で判定。
+#   【勝負レース】(本線枠・次点本線枠・統計裏付けは廃止。実弾の買い目は出さない)
+#     ◎の単指数が90以上(単勝確率66%以上)のレースを『勝負レース』として表示する(2026/09/17〜29の506Rで約8%)。
+#     紐(○▲△)の選び方: 勝負レース=単勝確率の高い順3頭 / それ以外のレース=期待値(単勝確率×予想オッズ)の高い順3頭。
+#       (506Rの検証: 単指数90以上は単勝確率順が現行より有利、それ以外は期待値順が有利。REF_PARTNER_MODE=legacy で従来の妙味重視(λ=2)に戻る)
+#     買い目は ◎→○▲△ の馬連・ワイド各3点(表示のみ)。統計予想(統計◎○▲△・参考買い目)は従来どおり表示。
+#     軸級・信頼度・レース分類は ◎ の単勝確率/複勝確率で判定。
 #
 #   【出力列の置き換え】(列の数・並びは v136_021 と同じ)
 #     研究用HTML: 騎手補正→騎手指数 / (旧)単指数の列→前売(補正前単勝オッズ) / (旧)複指数の列→人気O(人気オッズ) /
 #                 融合%→オッズ%(オッズ勝率)。単オッズ=予想オッズ、人気=予想オッズの順。脚質は出馬表HTMLから取得(取れない馬は『-』)。
 #     Excel/CSV も同じ置き換え。keiba_tool008 で列名を見ている場合は読み替えが必要。
-#     版情報 meta: bado-version=v137_001 / bado-logic に prob=odds+stat;honsen=ens1。
+#     版情報 meta: bado-version=v137_001 / bado-logic に prob=odds+stat;shobu=idx90。
 #
-#   ※本線枠・次点・紐馬指数・騎手指数の重み・予想オッズの配合は、的中データでの検証をまだしていない初期値。
+#   ※紐馬指数・騎手指数の重み・予想オッズの配合は、的中データでの検証をまだしていない初期値。
 #     結果がたまったら検証すること。損失許容の範囲で。
 #
 #   (v136_021 以前の変更履歴は keiba_yosou_v136_021.py を参照)
@@ -594,9 +590,9 @@ BADO_VERSION = 'v137_001'
 
 def bado_version_meta():
     """予想表HTMLの <head> に入れる版情報の meta タグ(2本)を返す。"""
-    _logic = 'prob=odds+stat;judge=%s;ref=%s;honsen=ens1;stat=%s;ura=50;obs=off;dq=1' % ('new' if USE_NEW_JUDGE else 'old',
-                                                       'new' if REF_NEW_LOGIC else 'old',
-                                                       'stat1' if (STAT_DEBA_RACES and stat_model()) else 'off')
+    _logic = 'prob=odds+stat;judge=%s;ref=%s;shobu=idx90;partner=%s;stat=%s;obs=off;dq=1' % (
+        'new' if USE_NEW_JUDGE else 'old', 'new' if REF_NEW_LOGIC else 'old', REF_PARTNER_MODE,
+        'stat1' if (STAT_DEBA_RACES and stat_model()) else 'off')
     return ('<meta name="bado-version" content="%s">'
             '<meta name="bado-logic" content="%s">' % (BADO_VERSION, _logic))
 
@@ -624,11 +620,10 @@ STAT_URA_MIN = 50.0
 STAT_URA_MARK = '裏'
 STAT_URA_LABEL = '統計裏付け'
 # 本線/次点の条件コード → 軸の種類(★v137_001)
-STAT_AXIS_OF = {'EU1': 'EU1', 'XW1': 'EU1', 'EU2': 'EU2', 'EW1': 'EW1', 'XU1': 'XU1'}
-STAT_AXIS_CODES = ('EU1', 'EU2', 'EW1', 'XU1')
+STAT_AXIS_OF = {}
+STAT_AXIS_CODES = ()
 # 軸の種類 → generate_analysis の軸キー
-STAT_AXIS_KEY = {'EU1': 'E:ens45max&st35&odds<1.95', 'EU2': 'E:ens45max&st35&odds<1.45',
-                 'EW1': 'E:ens50max&pop1&st50', 'XU1': 'E:ens50max&odds<1.95'}
+STAT_AXIS_KEY = {}
 # ★v136_020 の観察条件 ST1〜ST6 は旧軸((旧)外部AIの単指数)に依存するため停止(空)。
 STAT_OBS_DEFS = []
 
@@ -885,9 +880,7 @@ def write_stat_obs_log(html_races, path):
         return None
     _jp = {'umatan': '馬単', 'umaren': '馬連', 'wide': 'ワイド'}
     _cols = ['日付', '競馬場', 'R', '統計HTML']
-    for _k in STAT_AXIS_CODES:
-        _cols += [f'{_k}軸', f'{_k}軸統計%', f'{_k}裏付け']
-    _cols += ['本線買い目', '本線裏付け', '次点買い目', '次点裏付け']
+    _cols += ['勝負レース', '単指数', '紐の並び', '参考買い目']
     for _d in STAT_OBS_DEFS:
         _cols += [f"{_d['tag']}({_d['axis']}{_jp[_d['kind']]})", f"{_d['tag']}紐統計%"]
     _cols += ['horselist結合', '騎手変更', '出走取消', '統計印', '版']   # ★v136_021
@@ -905,35 +898,10 @@ def write_stat_obs_log(html_races, path):
             _rno = name[2]
         _r = {'日付': _date, '競馬場': unicodedata.normalize('NFKC', str(name[0])).strip(), 'R': _rno,
               '統計HTML': 'あり' if _st else 'なし'}
-        _ura = a.get('stat_ura') or {}
-        for _k in STAT_AXIS_CODES:
-            _u = _ura.get(_k)
-            _r[f'{_k}軸'] = _u['ban'] if _u else ''
-            _r[f'{_k}軸統計%'] = ('%.1f' % _u['ps']) if _u else ''
-            _r[f'{_k}裏付け'] = ('1' if _u['ok'] else '0') if _u else ''
-        _main, _main_u = [], []
-        for _kind, _rk, _ck in (('wide', 'wide_recs', 'gz_wide_cond'), ('umaren', 'umaren_recs', 'gz_umaren_cond'),
-                                ('umatan', 'umatan_recs', 'gz_umatan_cond')):
-            _cm = a.get(_ck) or {}
-            for _rec in (a.get(_rk) or []):
-                _cn = _cm.get((_rec.ban1, _rec.ban2), '')
-                if not _cn or gz_tier(_cn) != 'main':
-                    continue
-                _t = '%s %s %d-%d' % (_cn, _jp[_kind], _rec.ban1, _rec.ban2)
-                _main.append(_t)
-                if _stat_ura_of(a, _cn):
-                    _main_u.append(_t)
-        _ji, _ji_u = [], []
-        for _jr in (a.get('jiten_recs') or []):
-            for _p in _jr.get('partners', []):
-                _t = '%s %s %d-%d' % (_jr.get('tag', ''), _jp.get(_jr['kind'], _jr['kind']), _jr['axis_ban'], _p['ban'])
-                _ji.append(_t)
-                if _stat_ura_of(a, _jr.get('tag')):
-                    _ji_u.append(_t)
-        _r['本線買い目'] = ' / '.join(_main)
-        _r['本線裏付け'] = ' / '.join(_main_u)
-        _r['次点買い目'] = ' / '.join(_ji)
-        _r['次点裏付け'] = ' / '.join(_ji_u)
+        _r['勝負レース'] = '1' if a.get('shobu') else '0'
+        _r['単指数'] = ('%.1f' % float(a.get('shobu_idx'))) if a.get('shobu_idx') is not None else ''
+        _r['紐の並び'] = {'win': '単勝確率順', 'ev': '期待値順', 'legacy': '妙味重視(従来)'}.get(a.get('partner_mode'), '')
+        _r['参考買い目'] = ' / '.join('%s %s' % (_kn, ','.join(_combos)) for _kn, _combos, _lab, _mks in _ref_bet_lines(a))
         _obs = {o['tag']: o for o in (a.get('stat_obs') or [])}
         for _d in STAT_OBS_DEFS:
             _o = _obs.get(_d['tag'])
@@ -1199,41 +1167,15 @@ NSL_TIER_REFERENCE_ONLY = set()     # 参考強制する信頼度区分: なし
 
 
 # ══════════════════════════════════════════════════════════════════
-# ★v137_001: 本線枠(新条件・未検証)
-#   旧 UR1/UR2/WD1 と同じ形で、(旧)外部AIの単指数90の役を 統計勝率(オッズと独立な評価)に置換。
-#   判定値は予想表の表示値(小数1桁)。単勝確率=アンサンブル、予想オッズ/人気=予想表の単オッズ/人気。
-#   紐 = 条件を満たす馬のうち紐馬指数1位の1頭。軸が条件を満たさなければ見送り(繰り上げなし)。
-#   p/pt/hit/vroi 等の検証統計はまだ無いので 0。
+# ★v137_001: 勝負レース(本線枠・次点本線枠は廃止)
+#   ◎の単指数が90以上(=単勝確率 TAN_IDX_IRON_WP% 以上)のレースを『勝負レース』として表示する。
+#   紐(○▲△)は、勝負レースは単勝確率順の上位3頭、それ以外のレースは期待値(単勝確率×予想オッズ)順の上位3頭。
+#   (2026/09/17〜29の506Rで、単指数90以上は単勝確率順、それ以外は期待値順が回収率で有利だった。
+#    REF_PARTNER_MODE=legacy で従来の ref_partner_order(妙味重視 λ=2)に戻せる)
+#   実弾の買い目(本線枠・紐カバー枠)は出さない。買い目は参考予想(◎→○▲△ 馬連・ワイド各3点)として表示する。
 # ══════════════════════════════════════════════════════════════════
-# ★v137_001: 単勝確率の尖らせ(ENS_W_*)に合わせ、旧基準と同じレース・同じ紐が選ばれるよう再調整した値。
-#   (旧 軸45%/50%/50%, 紐 単勝確率8/複勝確率45/複勝確率40/単勝確率15 → 506Rで発火の一致 EU1 82%・EU2 92%・XW1 84%・EW1 87%)
-ENS_AXIS_WIN_MIN = 52.0      # EU1/EU2/XW1 の軸: 単勝確率の下限(%)  旧45
-ENS_AXIS_WIN_MIN_EW = 62.0   # EW1 の軸: 単勝確率の下限(%)           旧50
-ENS_AXIS_WIN_MIN_XU = 58.0   # XU1 の軸: 単勝確率の下限(%)           旧50
-ENS_AXIS_STAT_MIN = 35.0     # EU1/EU2 の軸: 統計勝率の下限(%)(統計勝率は尖らせの影響を受けないので据え置き)
-ENS_EU1_PARTNER_WIN = 6.5    # EU1 の紐: 単勝確率の下限(%)           旧8
-ENS_EW1_PARTNER_PLACE = 50.0 # EW1 の紐: 複勝確率の下限(%)           旧45
-ENS_XW1_PARTNER_PLACE = 42.5 # XW1 の紐: 複勝確率の下限(%)           旧40
-ENS_XU1_PARTNER_WIN = 13.0   # XU1 の紐: 単勝確率の下限(%)           旧15
-_w45, _w50e, _w50x = ('%g' % ENS_AXIS_WIN_MIN), ('%g' % ENS_AXIS_WIN_MIN_EW), ('%g' % ENS_AXIS_WIN_MIN_XU)
-GZ_COND_DEFS = {
-    'EU1': dict(kind='umaren', tier='main', axis='E:ens45max&st35&odds<1.95', order=0,
-                label='EU1 馬連① 軸[単勝確率%s%%+の最大&統計35%%+&予想オッズ1.9以下]×単勝確率%g以上の紐馬指数1位(新・未検証)' % (_w45, ENS_EU1_PARTNER_WIN),
-                short='馬連① 軸[単勝確率最大%s%%+ & 統計35%%+ & 予想オッズ1.9以下] × 単勝確率%g以上→紐馬指数1位' % (_w45, ENS_EU1_PARTNER_WIN),
-                bg='#9fd8a8', fg='#14532d', fill='9FD8A8',
-                p=0.0, pt=0.0, lo=0.0, hit=0, troi=0.0, vroi=0.0, vn=0, vhit=0, avg=0),
-    'EU2': dict(kind='umaren', tier='main', axis='E:ens45max&st35&odds<1.45', order=1,
-                label='EU2 馬連② 軸[EU1と同じ軸&予想オッズ1.4以下]×人気3以内&紐馬指数50以上の紐馬指数1位(新・未検証)',
-                short='馬連② 軸[EU1の軸 & 予想オッズ1.4以下] × 人気3以内&紐馬指数50以上→紐馬指数1位',
-                bg='#7cc98b', fg='#0f3d21', fill='7CC98B',
-                p=0.0, pt=0.0, lo=0.0, hit=0, troi=0.0, vroi=0.0, vn=0, vhit=0, avg=0),
-    'EW1': dict(kind='wide', tier='main', axis='E:ens50max&pop1&st50', order=0,
-                label='EW1 ワイド① 軸[単勝確率%s%%+の最大&人気1&統計50%%+]×複勝確率%g以上&統計10%%以上の紐馬指数1位(新・未検証)' % (_w50e, ENS_EW1_PARTNER_PLACE),
-                short='ワイド① 軸[単勝確率%s%%+最大 & 人気1 & 統計50%%+] × 複勝確率%g以上&統計10%%以上→紐馬指数1位' % (_w50e, ENS_EW1_PARTNER_PLACE),
-                bg='#ffcf70', fg='#6b3d00', fill='FFCF70',
-                p=0.0, pt=0.0, lo=0.0, hit=0, troi=0.0, vroi=0.0, vn=0, vhit=0, avg=0),
-}
-GZ_MAIN_KEEP = set(GZ_COND_DEFS)
+GZ_COND_DEFS = {}
+GZ_MAIN_KEEP = set()
 REF_UMAREN_ENABLE = False
 
 GZ_TIER_LABEL = {'main': '本線枠', 'cover': '紐カバー枠'}
@@ -1241,24 +1183,11 @@ GZ_KIND_JP = {'umatan': '馬単', 'umaren': '馬連', 'wide': 'ワイド'}
 GZ_KIND_SEP = {'umatan': '→', 'umaren': '-', 'wide': '-'}
 # 参考予想(◎→○▲△)の券種
 REF_HIMO_BET_TYPES = ('umaren', 'wide')
-
-# ★v137_001: 次点本線枠(表示のみ・実弾外)。旧 OW1/OU1 と同じ形。
-#   atoms: ('S:列名', 閾値, ラベル) は表示値で >= / ('_odds_le', 閾値) は予想オッズ <= 閾値。
-JITEN_ENABLE = True
-JITEN_MAP_DEFS = [
-    dict(tag='XW1', kind='wide', axis='E:ens45max&st35&odds<1.95',
-         atoms=[('S:複勝確率', ENS_XW1_PARTNER_PLACE, '複勝確率%g以上' % ENS_XW1_PARTNER_PLACE), ('_odds_le', 30.0, '予想オッズ30倍以内')],
-         top1_himo=True, src='v137', typ='観察', roi=0.0, hit=0.0, n=0),
-    dict(tag='XU1', kind='umaren', axis='E:ens50max&odds<1.95',
-         atoms=[('S:単勝確率', ENS_XU1_PARTNER_WIN, '単勝確率%g以上' % ENS_XU1_PARTNER_WIN), ('S:紐馬指数', 60.0, '紐馬指数60以上')],
-         top1_himo=True, src='v137', typ='観察', roi=0.0, hit=0.0, n=0),
-]
-_AXIS_LABEL = {
-    'E:ens45max&st35&odds<1.95': '軸[単勝確率最大%s%%+ & 統計35%%+ & 予想オッズ1.9以下]' % _w45,
-    'E:ens45max&st35&odds<1.45': '軸[単勝確率最大%s%%+ & 統計35%%+ & 予想オッズ1.4以下]' % _w45,
-    'E:ens50max&pop1&st50': '軸[単勝確率%s%%+最大 & 人気1 & 統計50%%+]' % _w50e,
-    'E:ens50max&odds<1.95': '軸[単勝確率%s%%+最大 & 予想オッズ1.9以下]' % _w50x,
-}
+JITEN_ENABLE = False
+JITEN_MAP_DEFS = []
+_AXIS_LABEL = {}
+SHOBU_LABEL = '勝負レース'
+REF_PARTNER_MODE = str(_os_gz.environ.get('REF_PARTNER_MODE', 'auto')).strip().lower()   # auto / legacy
 
 
 def gz_tier(cname):
@@ -1272,6 +1201,16 @@ def _gz_names(kind):
 GZ_UMATAN_NAMES = _gz_names('umatan')
 GZ_UMAREN_NAMES = _gz_names('umaren')
 GZ_WIDE_NAMES = _gz_names('wide')
+
+
+def partner_order_auto(win_pct, adj_odds, bans, axis_pos, shobu):
+    """◎(axis_pos)の相手候補を並べた位置リスト。勝負レース=単勝確率順 / それ以外=期待値順(単勝確率×予想オッズ)。"""
+    win = np.asarray(win_pct, dtype=float)
+    od = np.clip(np.asarray(adj_odds, dtype=float), 1.0, None)
+    idx = [i for i in range(len(win)) if i != axis_pos]
+    if shobu:
+        return sorted(idx, key=lambda i: (-win[i], bans[i]))
+    return sorted(idx, key=lambda i: (-(win[i] * od[i]), bans[i]))
 
 
 
@@ -1400,7 +1339,7 @@ def _empty_analysis():
         'payout_level_score': 0, 'arare_class': '', 'race_trend': '', 'special_single': 'なし',
         'fuku_recs': [], 'umatan_recs': [], 'umaren_recs': [], 'wide_recs': [], 'tan_recs': [],
         'hole_fuku_recs': [], 'reference_bets': [], 'jiten_recs': [],
-        'gz_umatan_cond': {}, 'gz_umaren_cond': {}, 'gz_wide_cond': {}, 'gz_stakes': {},
+        'gz_umatan_cond': {}, 'gz_umaren_cond': {}, 'gz_wide_cond': {}, 'gz_stakes': {}, 'shobu': False, 'shobu_idx': 0.0, 'partner_mode': '',
         'gz_active_conds': [], 'force_reference': True, 'judgment_class': 'D級軸 / 標準レース',
         'recommended_action': '', 'expected_win_rate': '—', 'expected_place_rate': '—',
         'judgment_comment': 'データなし', 'myomi_axis_score': 0, 'axis_zscore': 0.0,
@@ -1558,12 +1497,17 @@ def generate_analysis(group):
 
     _wp_order = sorted(range(n), key=lambda i: (-p_win[i], group.at[i, '番']))
 
-    # ── 予想印: ◎=連対確率1位 / ○▲△=◎との馬連確率×妙味(ref_partner_order) ──
+    # ── 予想印: ◎=連対確率1位 / ○▲△=勝負レース(◎の単指数90以上)は単勝確率順、それ以外は期待値順 ──
     axis_idx = min(range(n), key=lambda i: (-fp['top2'][i], group.at[i, '番']))
     group.at[axis_idx, '印'] = '◎'
+    _shobu = float(group.at[axis_idx, '単指数']) >= TAN_IDX_IRON
     _partners = []
     try:
-        _ordp = ref_partner_order(group['単勝確率'].to_numpy(), raw_odds.to_numpy(), axis_idx)
+        if REF_PARTNER_MODE == 'legacy':
+            _ordp = ref_partner_order(group['単勝確率'].to_numpy(), raw_odds.to_numpy(), axis_idx)
+        else:
+            _ordp = partner_order_auto(group['単勝確率'].to_numpy(), group['adjusted_odds'].to_numpy(dtype=float),
+                                       group['番'].to_numpy(), axis_idx, _shobu)
         _partners = [k for k in _ordp[:REF_N_PARTNERS]]
     except Exception as _re_:
         print(f'  [参考予想警告] 相手選定に失敗: {_re_}')
@@ -1586,128 +1530,27 @@ def generate_analysis(group):
             elif _cur != '◎':
                 group.at[i, '印'] = _cur + '穴'
 
-    # ── 本線枠・次点の軸 ──
-    def _top_by_win(thr):
-        _c = [i for i in range(n) if _ge(i, '単勝確率', thr)]
-        return min(_c, key=lambda i: (-p_win[i], group.at[i, '番'])) if _c else None
-
-    def _stat_ge(i, thr):
-        return p_stat is not None and _ge(i, '統計勝率', thr)
-
-    _ax45 = _top_by_win(ENS_AXIS_WIN_MIN)
-    _ax_ew = _top_by_win(ENS_AXIS_WIN_MIN_EW)
-    _ax_xu = _top_by_win(ENS_AXIS_WIN_MIN_XU)
-    _ax_eu = _ax45 if (_ax45 is not None and _stat_ge(_ax45, ENS_AXIS_STAT_MIN)) else None
-    _AXIS = {
-        'E:ens45max&st35&odds<1.95': (_ax_eu if _ax_eu is not None and _odds_lt(_ax_eu, 1.95) else None),
-        'E:ens45max&st35&odds<1.45': (_ax_eu if _ax_eu is not None and _odds_lt(_ax_eu, 1.45) else None),
-        'E:ens50max&pop1&st50': (_ax_ew if _ax_ew is not None and _pop_of(_ax_ew) == 1
-                                 and _stat_ge(_ax_ew, 50.0) else None),
-        'E:ens50max&odds<1.95': (_ax_xu if _ax_xu is not None and _odds_lt(_ax_xu, 1.95) else None),
-    }
-
-    def _top1_himo(cands):
-        if not cands:
-            return []
-        return [min(cands, key=lambda i: (-(_v(i, '紐馬指数') or -1.0), group.at[i, '番']))]
-
-    _PARTNER = {
-        'EU1': lambda ax: _top1_himo([i for i in range(n) if i != ax and _ge(i, '単勝確率', ENS_EU1_PARTNER_WIN)]),
-        'EU2': lambda ax: _top1_himo([i for i in range(n) if i != ax and _pop_of(i) <= 3
-                                      and _ge(i, '紐馬指数', 50.0)]),
-        'EW1': lambda ax: _top1_himo([i for i in range(n) if i != ax and _ge(i, '複勝確率', ENS_EW1_PARTNER_PLACE)
-                                      and _stat_ge(i, 10.0)]),
-    }
-    assert set(_PARTNER) == set(GZ_COND_DEFS)
-
-    # ── 買い目(的中率=アンサンブルの着順確率 / オッズ=予想オッズから見た推定配当) ──
-    p_mkt = _normalize(1.0 / group['adjusted_odds'].to_numpy(dtype=float))
-    fp_disp = finish_probs(p_mkt)
-
-    def _pair_rec(kind, a, b):
-        if kind == 'umatan':
-            hit, qm = fp['exacta'][a, b], fp_disp['exacta'][a, b]
-        elif kind == 'umaren':
-            hit, qm = fp['quinella'][a, b], fp_disp['quinella'][a, b]
-        else:
-            hit, qm = fp['wide'][a, b], fp_disp['wide'][a, b]
-        odds = round(max(1.0, TAKEOUT_PAIR / max(qm, 1e-6)), 1)
-        ev = round(hit * odds * 100.0)
-        return PairRec(int(group.at[a, '番']), int(group.at[b, '番']), round(hit * 100.0, 1), odds, ev,
-                       float(group.at[b, '紐馬指数']), ev)
-
-    def _gz_collect(names, kind, ordered):
-        recs, tag, seen = [], {}, set()
-        for cname in names:
-            ax = _AXIS.get(GZ_COND_DEFS[cname]['axis'])
-            if ax is None:
-                continue
-            for b in _PARTNER[cname](ax):
-                if int(group.at[b, '番']) == int(group.at[ax, '番']):
-                    continue
-                r = _pair_rec(kind, ax, b)
-                dk = (r.ban1, r.ban2) if ordered else frozenset((r.ban1, r.ban2))
-                if dk in seen:
-                    continue
-                seen.add(dk)
-                recs.append(r)
-                tag[(r.ban1, r.ban2)] = cname
-        return recs, tag
-
-    umatan_recs, gz_umatan_cond = _gz_collect(GZ_UMATAN_NAMES, 'umatan', True)
-    umaren_recs, gz_umaren_cond = _gz_collect(GZ_UMAREN_NAMES, 'umaren', False)
-    wide_recs, gz_wide_cond = _gz_collect(GZ_WIDE_NAMES, 'wide', False)
-
-    # ── 参考予想 ◎→○▲△(馬連・ワイド) ──
+    # ── 買い目: 本線枠・次点本線枠は廃止。◎→○▲△(馬連・ワイド各3点)を参考予想として表示する ──
+    #   勝負レース(◎の単指数90以上)は紐が単勝確率順、それ以外は期待値順。実弾の買い目は出さない。
+    umatan_recs, umaren_recs, wide_recs = [], [], []
+    gz_umatan_cond, gz_umaren_cond, gz_wide_cond = {}, {}, {}
+    jiten_recs = []
     _ax_ban = int(group.at[axis_idx, '番'])
+    if REF_PARTNER_MODE == 'legacy':
+        _ref_desc = '◎→○▲△(配当の妙味を重視した上位3頭)'
+    elif _shobu:
+        _ref_desc = '◎→○▲△(勝負レース: 単勝確率の高い上位3頭)'
+    else:
+        _ref_desc = '◎→○▲△(期待値の高い上位3頭)'
     reference_bets = []
     if _partners:
         for kd in REF_HIMO_BET_TYPES:
             reference_bets.append(dict(kind=kd, name='', axis_ban=_ax_ban,
                                        partner_bans=[int(group.at[i, '番']) for i in _partners],
-                                       stats={}, is_fallback=False,
-                                       desc='◎→○▲△(配当の妙味を重視した上位3頭)'))
+                                       stats={}, is_fallback=False, shobu=_shobu,
+                                       desc=_ref_desc))
 
-    # ── 次点本線枠(表示のみ) ──
-    _main_pairs = {'umatan': {(r.ban1, r.ban2) for r in umatan_recs},
-                   'umaren': {frozenset((r.ban1, r.ban2)) for r in umaren_recs},
-                   'wide': {frozenset((r.ban1, r.ban2)) for r in wide_recs}}
-
-    def _atom_ok(i, atom):
-        col, thr, _lab = atom
-        if col == '_odds_le':
-            x = _v(i, 'adjusted_odds')
-            return x is not None and 0 < x <= thr
-        if col.startswith('S:'):
-            return _ge(i, col[2:], thr)
-        return _ge(i, col, thr)
-
-    jiten_recs, _jseen = [], set()
-    for jd in (JITEN_MAP_DEFS if JITEN_ENABLE else []):
-        jax = _AXIS.get(jd['axis'])
-        if jax is None:
-            continue
-        cands = [i for i in _wp_order if i != jax and all(_atom_ok(i, a) for a in jd['atoms'])]
-        if jd.get('top1_himo'):
-            cands = _top1_himo(cands)
-        jax_ban = int(group.at[jax, '番'])
-        parts = []
-        for i in cands:
-            pb = int(group.at[i, '番'])
-            dk = (jax_ban, pb) if jd['kind'] == 'umatan' else frozenset((jax_ban, pb))
-            if dk in _main_pairs[jd['kind']] or (jd['kind'], dk) in _jseen:
-                continue
-            _jseen.add((jd['kind'], dk))
-            parts.append({'ban': pb, 'odds': float(group.at[i, 'adjusted_odds']),
-                          'place': float(group.at[i, '複勝確率'])})
-        if parts:
-            jiten_recs.append({'tag': jd['tag'], 'kind': jd['kind'],
-                               'atoms_label': ' & '.join(a[2] for a in jd['atoms']),
-                               'axis_label': _AXIS_LABEL.get(jd['axis'], jd['axis']),
-                               'roi': jd['roi'], 'hit': jd['hit'], 'n': jd['n'], 'src': jd.get('src'),
-                               'rank': None, 'typ': jd.get('typ'), 'axis_ban': jax_ban, 'partners': parts})
-
-    # ── 統計予想・統計裏付け ──
+    # ── 統計予想(参考) ──
     _stat, _stat_ura = None, {}
     if p_stat is not None:
         _ps_d = {int(b): float(v) for b, v in zip(group['番'], group['統計勝率'])}
@@ -1724,16 +1567,6 @@ def generate_analysis(group):
                      p_stat=_ps_d, p_fused={int(b): float(v) for b, v in zip(group['番'], group['単勝確率'])},
                      marks=_marks, order=_order, bets=_bets)
         group['統計印'] = group['番'].map(lambda b: _marks.get(int(b), ''))
-        for code, key in STAT_AXIS_KEY.items():
-            ai = _AXIS.get(key)
-            if ai is None:
-                continue
-            ab = int(group.at[ai, '番'])
-            _stat_ura[code] = dict(ban=ab, ps=_ps_d[ab], ok=_ps_d[ab] >= STAT_URA_MIN)
-        _ura_bans = {u['ban'] for u in _stat_ura.values() if u['ok']}
-        if _ura_bans:
-            group['統計印'] = [(str(m or '') + STAT_URA_MARK) if int(b) in _ura_bans else m
-                               for b, m in zip(group['番'], group['統計印'])]
     else:
         group['統計印'] = ''
 
@@ -1844,6 +1677,8 @@ def generate_analysis(group):
         'stable_tan_rec': None, 'stable_tan_tag': '', 'stable_fuku_rec': None, 'stable_fuku_tag': '',
         'subline_rec': None, 'subline_b_rec': None, 'subline_c_rec': None,
         'jiten_recs': jiten_recs, 'stat': _stat, 'stat_ura': _stat_ura, 'stat_obs': [],
+        'shobu': bool(_shobu), 'shobu_idx': float(group.at[axis_idx, '単指数']),
+        'partner_mode': ('legacy' if REF_PARTNER_MODE == 'legacy' else ('win' if _shobu else 'ev')),
         'hl_n': _dq_hl_n, 'hl_m': _dq_hl_m, 'dq_jk': _dq_jk, 'dq_scratched': _dq_scratched,
         'dq_nostat': (p_stat is None), 'race_label': _dq_label,
         'tan_priority_bans': [], 'conf_tier_precheck': _conf_tier_label,
@@ -2507,10 +2342,10 @@ _NAR_HTML_HEAD = """<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
  .footer{padding:10px;text-align:center;color:#777;font-size:10.5px}
 </style></head><body>
 <div class="top"><h1>BADO 地方競馬予想 — オッズ×統計 アンサンブル</h1>
-<div class="sub">__SRC__ ／ 全__NR__レース ／ ★採用買い目あり __NGZ__レース ／ 均等買い1点__UNIT__円・レース上限__MAXP__点</div>
+<div class="sub">__SRC__ ／ 全__NR__レース ／ ★勝負レース(◎の単指数90以上) __NGZ__レース ／ 買い目は表示のみ</div>
 <div class="legend">
 __GZ_LEGEND__
- <span style="color:#ffcf9e">■穴=前売人気4-9位 × 単勝確率がオッズ勝率の1.3倍以上 × 複勝確率25%以上</span>
+ <span style="color:#ffcf9e">■穴=前売人気4-9位 × 単勝確率がオッズ勝率の1.27倍以上 × 複勝確率25%以上</span>
 </div></div>
 """
 
@@ -2525,31 +2360,12 @@ def _h(v):
 
 
 def _gz_legend_html():
-    """★v135_011: 採用条件レジストリからHTMLレジェンドを生成(枠別に見出しを付ける)。"""
+    """★v137_001: HTMLレジェンド(勝負レース・確率とオッズ・統計予想・参考予想の説明)。"""
     _parts = []
-    for _t in ('main', 'cover'):
-        # ★v136_006: 券種ごと(馬単→馬連→ワイド)にまとめ、その中を order 順で並べる。
-        _kord = {'umatan': 0, 'umaren': 1, 'wide': 2}
-        _items = [(k, v) for k, v in sorted(GZ_COND_DEFS.items(),
-                                            key=lambda kv: (_kord.get(kv[1]['kind'], 9), kv[1]['order']))
-                  if v['tier'] == _t]
-        if not _items:
-            continue
-        _parts.append(' <b>【%s】</b>' % GZ_TIER_LABEL[_t])
-        _parts.extend(
-            ' <span style="color:%s">■%s %s %s</span>'
-            % (v['bg'], k, GZ_KIND_JP.get(v['kind'], v['kind']), v['short'])
-            for k, v in _items)
-    # ★v136_018: 次点本線枠(実戦条件シートの観察条件・表示のみ)の説明。
-    _sheet_jd = [d for d in (JITEN_MAP_DEFS if JITEN_ENABLE else []) if d.get('src') == 'v137']
-    if _sheet_jd:
-        _ax_lab = _AXIS_LABEL
-        _parts.append(' <b>【次点本線枠(表示のみ・未検証)】</b>')
-        _parts.extend(
-            ' <span style="color:#6b7280">■%s %s %s × %s→紐馬指数1位</span>'
-            % (d['tag'], GZ_KIND_JP.get(d['kind'], d['kind']), _ax_lab.get(d['axis'], d['axis']),
-               '&'.join(a[2] for a in d['atoms']))
-            for d in _sheet_jd)
+    _parts.append(' <b>【%s】</b>' % SHOBU_LABEL)
+    _parts.append(' <span style="color:#ffcf70">■◎の単指数が90以上(単勝確率%g%%以上)のレース。'
+                  '紐(○▲△)は単勝確率の高い順に3頭。それ以外のレースは期待値(単勝確率×予想オッズ)の高い順に3頭。'
+                  '買い目は◎→○▲△の馬連・ワイド各3点(表示のみ)。</span>' % TAN_IDX_IRON_WP)
     # ★v137_001: 確率・オッズの説明
     _parts.append(' <b>【確率とオッズ】</b>')
     _parts.append(' <span style="color:#d9c8f5">■単勝率=オッズ勝率(前売=補正前の単勝オッズを正規化)^%.2f × 統計%%^%.2f の融合。'
@@ -2563,12 +2379,12 @@ def _gz_legend_html():
         _parts.append(' <b>【統計予想(参考・実弾外)】</b>')
         _parts.append(' <span style="color:#d9c8f5">■出馬表HTMLの近5走・着別成績・騎手/調教師成績から統計%%を計算(bado_stat_model)。'
                       '統計印◎○▲△=統計%%の上位。参考買い目=統計◎-○/◎-▲の馬連・ワイド(確率はHarville推定)。'
-                      '統計裏付け=本線/次点の軸馬の統計%%が50%%以上(統計印に『裏』)。読込: %s</span>' % _h(stat_summary()))
+                      '読込: %s</span>' % _h(stat_summary()))
     else:
         _parts.append(' <b>【統計予想】</b> <span style="color:#ffb4a8">■出馬表HTML未読込 → 統計%なし・単勝率はオッズ勝率のみ</span>')
     _parts.append(' <b>【参考予想】</b>')
     _parts.append(' <span style="color:#9aa0a6">■紐 軸=◎(◎=連対率1位) × 予想印○▲△の3頭'
-                  '(◎との馬連の当たりやすさに対し、配当の妙味を重視した上位3頭)。馬連・ワイド各3点を表示。'
+                  '(勝負レースは単勝確率順、それ以外は期待値順)。馬連・ワイド各3点を表示。'
                   'いずれも表示のみで実弾対象外。</span>')
     return NL_JOIN_GZ.join(_parts)
 
@@ -2711,16 +2527,13 @@ def build_html_nar(html_races, src_name):
         return (venue, int(m.group(1)) if m else 0, str(name[3]) if len(name) > 3 else '')
     html_races = sorted(html_races, key=_race_sort_key)
 
-    n_gz = sum(1 for _, a, _x in html_races
-               if a.get('gz_active_conds') and not a.get('force_reference'))
+    n_gz = sum(1 for _, a, _x in html_races if a.get('shobu'))
     parts = [_NAR_HTML_HEAD.replace('<meta charset="utf-8">',
                                     '<meta charset="utf-8">' + bado_version_meta(), 1)
              .replace('__SRC__', _h(src_name))
              .replace('__NR__', str(len(html_races)))
              .replace('__NGZ__', str(n_gz))
-             .replace('__GZ_LEGEND__', _gz_legend_html())
-             .replace('__UNIT__', str(GZ_FLAT_UNIT))
-             .replace('__MAXP__', str(gz_race_max_points()))]
+             .replace('__GZ_LEGEND__', _gz_legend_html())]
     for name, analysis, extras in html_races:
         tbl = analysis['table']
         if tbl is None or tbl.empty:
@@ -2951,14 +2764,21 @@ def build_html_nar(html_races, src_name):
                          % _dsc)
             else:
                 _note = ('<span style="color:#6b7280">%s</span>' % _dsc)
-            buys.append('<div class="brow" style="opacity:.85">'
-                        '<span class="bt" style="background:#9aa0a6">'
-                        '%s【参考】</span>'
-                        '<b>%s</b> %s &nbsp;%s</div>'
-                        % (_kn, _h(_rf['name']), _buy, _note))
+            if _rf.get('shobu'):
+                buys.append('<div class="brow">'
+                            '<span class="bt" style="background:#c00000">'
+                            '%s【勝負】</span>'
+                            '<b>%s</b> %s &nbsp;%s</div>'
+                            % (_kn, _h(_rf['name']), _buy, _note))
+            else:
+                buys.append('<div class="brow" style="opacity:.85">'
+                            '<span class="bt" style="background:#9aa0a6">'
+                            '%s【参考】</span>'
+                            '<b>%s</b> %s &nbsp;%s</div>'
+                            % (_kn, _h(_rf['name']), _buy, _note))
         if (not ut and not um and not wd and _st_tan is None and _st_fuku is None
                 and not _refs):
-            buys.append('<div class="skip">― 買い目なし（本線枠・参考予想とも非該当） ―</div>')
+            buys.append('<div class="skip">― 買い目なし ―</div>')
         rel = analysis.get('judgment_class', '')
         # 軸判定を大きく強調(S/A/B/C/D級軸を色付きバッジで)
         _axc = str(analysis.get('axis_class', ''))
@@ -2974,11 +2794,12 @@ def build_html_nar(html_races, src_name):
                     f'信頼度{_rec["score"]} {_rec["category"]}</span>')
         except Exception:
             pass
-        badge = '<span class="badge">★採用買い目あり</span>' if has_gz else ''
+        _shobu = bool(analysis.get('shobu'))
+        badge = ('<span class="badge">★%s(単指数%.1f)</span>' % (SHOBU_LABEL, float(analysis.get('shobu_idx') or 0))) if _shobu else ''
         # race_cat(レース分類)部分のみ rmeta に(級はバッジで表示済み)
         _race_cat = rel.split(' / ')[-1] if ' / ' in rel else rel
         parts.append(f"""
-        <div class="{'race gz-race' if has_gz else 'race'}">
+        <div class="{'race gz-race' if _shobu else 'race'}">
           <div class="rhead"><span class="rtitle">{_h(venue)} {_h(rno)}R</span>{grade_badge}{conf}
             <span class="rmeta">{_h(_dist_txt(dist))} / 発走{_h(ptime or '-')} / {len(tbl)}頭 / {_h(_race_cat)}</span>{badge}</div>
           <table class="grid"><thead><tr>
@@ -2987,7 +2808,7 @@ def build_html_nar(html_races, src_name):
             <th>単勝率</th><th>複勝率</th><th>期待値</th><th>前売</th><th>人気O</th><th>単指数</th><th>紐馬指数</th><th>統計印</th><th>統計%</th><th>オッズ%</th>
           </tr></thead><tbody>{''.join(rows)}</tbody></table>
           <div class="buys">{''.join(buys)}</div>{_data_note_html(analysis)}{_stat_block_html(analysis)}</div>""")
-    parts.append('<div class="footer">v137_001 オッズ×統計 アンサンブル版。本線枠・次点は新条件で未検証。損失許容の範囲で。</div></body></html>')
+    parts.append('<div class="footer">v137_001 オッズ×統計 アンサンブル版。勝負レース=◎の単指数90以上。買い目は表示のみ(実弾なし)。損失許容の範囲で。</div></body></html>')
     return '\n'.join(parts)
 
 
@@ -3257,7 +3078,6 @@ def build_html_note(html_races, src_name):
         rnum = _note_rno(rno)
         anchor = 'r-%s-%d' % (_re.sub(r'\W', '', str(venue)) or 'v', rnum)
         ptime_s = str(ptime)[:5] if ptime is not None else ''
-        force_ref = bool(analysis.get('force_reference', False))
         names_by_ban = {}
         for _, row in tbl.iterrows():
             try:
@@ -3324,19 +3144,15 @@ def build_html_note(html_races, src_name):
                                                  ('%.1f' % kdev) if kdev is not None else '-')
                 + '</tr>')
 
-        # ── 推奨買い目(本線枠) ──
+        # ── 勝負レース(◎の単指数90以上): ◎→○▲△(馬連・ワイド各3点。紐は単勝確率順) ──
         main_tks = []
-        stakes = analysis.get('gz_stakes', {})
-        for kind, recs_key, cond_key, arrow in (('wide', 'wide_recs', 'gz_wide_cond', '-'),
-                                                ('umaren', 'umaren_recs', 'gz_umaren_cond', '-'),
-                                                ('umatan', 'umatan_recs', 'gz_umatan_cond', '→')):
-            cmap = analysis.get(cond_key, {}) or {}
-            for rec in analysis.get(recs_key, []) or []:
-                cn = cmap.get((rec.ban1, rec.ban2), '')
-                if gz_tier(cn) != 'main':
-                    continue
-                main_tks.append((kind, rec.ban1, rec.ban2, arrow, cn))
-        has_main = bool(main_tks) and not force_ref
+        _shobu = bool(analysis.get('shobu'))
+        if _shobu:
+            for rf in analysis.get('reference_bets') or []:
+                _sep = GZ_KIND_SEP.get(rf.get('kind'), '-')
+                for _b in rf.get('partner_bans', []):
+                    main_tks.append((rf.get('kind'), rf['axis_ban'], _b, _sep, ''))
+        has_main = bool(main_tks)
         if has_main:
             n_pick_races += 1
             n_pick_pts += len(main_tks)
@@ -3357,15 +3173,14 @@ def build_html_note(html_races, src_name):
 
         buys = []
         if main_tks:
-            _lab = ('推奨買い目' if not force_ref
-                    else '推奨買い目（この開催は見送り推奨のため参考表示）')
+            _lab = '勝負レース（◎から単勝確率の高い3頭へ）'
             _items = ''.join(
                 _tk(GZ_KIND_JP.get(k, k), '%d%s%d' % (b1, ar, b2),
                     '%s・%s' % (names_by_ban.get(b1, ''), names_by_ban.get(b2, '')),
                     (cn if NOTE_SHOW_COND_CODE else ''))
                 for k, b1, b2, ar, cn in main_tks)
-            buys.append('<div class="bgrp %s"><div class="bl">%s</div><div class="tks">%s</div></div>'
-                        % ('main' if not force_ref else 'ref', _lab, _items))
+            buys.append('<div class="bgrp main"><div class="bl">%s</div><div class="tks">%s</div></div>'
+                        % (_lab, _items))
 
         # ── 単勝・複勝(安定) ──
         st_items = []
@@ -3384,7 +3199,7 @@ def build_html_note(html_races, src_name):
                         '<div class="tks">%s</div></div>' % ''.join(st_items))
 
         # ── 参考買い目(◎→印の馬) ──
-        if NOTE_SHOW_REFERENCE:
+        if NOTE_SHOW_REFERENCE and not _shobu:
             ref_items = []
             for rf in analysis.get('reference_bets') or []:
                 kn = GZ_KIND_JP.get(rf.get('kind'), rf.get('kind'))
@@ -3393,10 +3208,10 @@ def build_html_note(html_races, src_name):
                 if combo:
                     ref_items.append(_tk(kn, combo, '◎から印の馬へ'))
             if ref_items:
-                buys.append('<div class="bgrp ref"><div class="bl">参考買い目</div>'
+                buys.append('<div class="bgrp ref"><div class="bl">参考買い目（期待値の高い3頭）</div>'
                             '<div class="tks">%s</div></div>' % ''.join(ref_items))
         if not buys:
-            buys.append('<div class="none">このレースは買い目なし（見送り）</div>')
+            buys.append('<div class="none">このレースは買い目なし</div>')
 
         # ── レース見出し ──
         _axc = str(analysis.get('axis_class', '') or '')
@@ -3416,7 +3231,7 @@ def build_html_note(html_races, src_name):
             fg, bg = _NOTE_GRADE_STYLE[_gl]
             grade_html = ('<span class="grade"><i style="color:%s;background:%s">%s</i>%s</span>'
                           % (fg, bg, _gl, _h(('%s軸 ・ ' % _gl) + conf_txt)))
-        flag = '<span class="flag">推奨買い目あり</span>' if has_main else ''
+        flag = ('<span class="flag">%s</span>' % SHOBU_LABEL) if has_main else ''
         cmt = str(analysis.get('judgment_comment', '') or '').strip()
         _rel = str(analysis.get('judgment_class', '') or '')
         race_cat = (_rel.split(' / ')[-1] if ' / ' in _rel else _rel).strip()
@@ -3442,7 +3257,7 @@ def build_html_note(html_races, src_name):
             + ''.join(trs) + '</tbody></table></div>'
             + '<div class="buys">%s</div></section>' % ''.join(buys))
 
-    # ── 本日の推奨買い目(発走順) ──
+    # ── 本日の勝負レース(発走順) ──
     index_rows.sort(key=lambda t: (t[0] or '99:99', str(t[1]), t[2]))
     if index_rows:
         _ir = ''.join(
@@ -3452,10 +3267,10 @@ def build_html_note(html_races, src_name):
                ''.join('<span class="chip"><span class="ty">%s</span><b>%s</b></span>'
                        % (_h(k), _h(c)) for k, c in tks), _h(n))
             for t, v, r, a, tks, n in index_rows)
-        index_html = ('<div class="index"><table><thead><tr><th>発走</th><th>レース</th><th>推奨買い目</th>'
+        index_html = ('<div class="index"><table><thead><tr><th>発走</th><th>レース</th><th>買い目</th>'
                       '<th class="ax">本命◎</th></tr></thead><tbody>%s</tbody></table></div>' % _ir)
     else:
-        index_html = '<div class="empty">本日の推奨買い目はありません（全レース見送り）</div>'
+        index_html = '<div class="empty">本日の勝負レース(単指数90以上)はありません</div>'
 
     guide_html = (
         '<div class="guide"><dl>'
@@ -3467,14 +3282,14 @@ def build_html_note(html_races, src_name):
         '<dt>脚質</dt><dd>逃=逃げ・先=先行・差=差し・追=追込。</dd>'
         '<dt>騎手の色</dt><dd>騎手名が<span class="jkhot">色付き</span>は、騎手指数が高い(60以上)騎手です。</dd>'
         '<dt>勝率・複勝率</dt><dd>単勝オッズから見た勝率と、出馬表の成績から計算した統計の勝率を合わせて推定した'
-        '「1着になる確率」「3着以内に入る確率」(%)。勝率40%以上・複勝率70%以上は濃い色で表示。</dd>'
+        '「1着になる確率」「3着以内に入る確率」(%)。勝率48%以上・複勝率77%以上は濃い色で表示。</dd>'
         '<dt>単勝</dt><dd>予想オッズ。前売の単勝オッズと、人気になりそうな要素(騎手・成績・当地実績・最高タイム)から'
         '推定したオッズを合わせたもの。人気はこの順番です。</dd>'
         '<dt>期待値</dt><dd>勝率×予想オッズ。100を超えるほど、オッズに対して割安な馬です。</dd>'
         '<dt>単指数</dt><dd>単勝確率を100点満点に換算した点数。90以上は鉄板クラス(単勝確率' + ('%g' % TAN_IDX_IRON_WP) + '%以上)。◎は連対確率1位の馬です。<span class="anav">橙色</span>は穴候補の馬。</dd>'
-        + ('<dt>○▲△</dt><dd>◎との組み合わせで、当たりやすさに加えて「配当の妙味」を重視して選んだ3頭。参考買い目(◎から馬連・ワイド各3点)の相手です。</dd>' if REF_NEW_LOGIC else '') +
+        + ('<dt>○▲△</dt><dd>◎の相手(紐)3頭。勝負レース（◎の単指数90以上）は単勝確率の高い順、それ以外のレースは期待値（勝率×予想オッズ）の高い順に選びます。</dd>' if REF_NEW_LOGIC else '') +
         '<dt>紐馬</dt><dd>紐馬指数(0〜100)。2〜3着に来る確率に、オッズより来ると見ている分の妙味を掛けたもの'
-        '(そのレースで最も紐向きの馬が100)。推奨買い目の相手選びに使います。</dd>'
+        '(そのレースで最も紐向きの馬が100)。</dd>'
         '<dt>騎手指数</dt><dd>騎手の評価を偏差値で表したもの(50が平均)。その日に乗る他の馬の人気・騎乗数・減量騎手・'
         'この馬とのコンビ成績から計算。60以上は好騎手。</dd>'
         '<dt>緑の太字</dt><dd>注目の値(期待値110以上・騎手指数60以上)。</dd>'
@@ -3484,8 +3299,8 @@ def build_html_note(html_races, src_name):
               '・'.join('「%s」%g以上' % (_lb, _mn) for _mn, _lb, *_ in JUDGE_CONF_TIERS if _mn >= 0))
            if USE_NEW_JUDGE else
            '<dt>信頼度</dt><dd>S〜Dは軸馬の信頼度(Sが最も高い)。数字は0〜100で、そのレースの買い目が的中しやすいかの目安です。</dd>') +
-        '<dt>推奨買い目</dt><dd>過去データで条件を検証したBADOの本命買い目です（黄色の枠のレース）。組番は馬番です。</dd>'
-        '<dt>参考買い目</dt><dd>◎から印の馬への組み合わせ。推奨買い目より点数が多く、参考としてご覧ください。</dd>'
+        '<dt>勝負レース</dt><dd>◎の単指数が90以上のレース（黄色の枠）。◎から単勝確率の高い順に3頭へ、馬連・ワイドを表示します。組番は馬番です。</dd>'
+        '<dt>参考買い目</dt><dd>勝負レース以外のレースで、◎から期待値（勝率×予想オッズ）の高い3頭への組み合わせ。参考としてご覧ください。</dd>'
         '</dl></div>')
 
     title = '%s 地方競馬予想%s' % (NOTE_BRAND, (' ' + date_label) if date_label else '')
@@ -3496,10 +3311,10 @@ def build_html_note(html_races, src_name):
            '<h1>%s</h1>' % _h(date_label or '地方競馬予想'),
            '<div class="venues">%s</div>' % _h('・'.join(str(v) for v in venues)),
            '<div class="kpis"><div class="kpi"><b>%d</b><span>予想レース</span></div>'
-           '<div class="kpi"><b>%d</b><span>推奨買い目のあるレース</span></div>'
-           '<div class="kpi"><b>%d</b><span>推奨買い目（点）</span></div></div></header>'
+           '<div class="kpi"><b>%d</b><span>勝負レース</span></div>'
+           '<div class="kpi"><b>%d</b><span>勝負レースの買い目（点）</span></div></div></header>'
            % (len(cards), n_pick_races, n_pick_pts),
-           '<h2>本日の推奨買い目（発走順）</h2>', index_html,
+           '<h2>本日の勝負レース（発走順）</h2>', index_html,
            '<h2>予想表の見方</h2>', guide_html,
            '<h2>全レースの予想</h2>']
     out.extend(cards)
@@ -3511,6 +3326,24 @@ def build_html_note(html_races, src_name):
 # ──────────────────────────────────────────────────────────────
 # Excel / CSV 出力（v077完全版）
 # ──────────────────────────────────────────────────────────────
+def _ref_bet_lines(analysis):
+    """勝負レース/参考の買い目(◎→○▲△)を [(券種名, [組番...], ラベル, 印の並び)] で返す。"""
+    out = []
+    try:
+        _tb = analysis['table']
+        _mk = {int(b): str(m or '') for b, m in zip(_tb['番'], _tb['印'])}
+    except Exception:
+        _mk = {}
+    for rf in analysis.get('reference_bets') or []:
+        kn = GZ_KIND_JP.get(rf.get('kind'), rf.get('kind'))
+        sep = GZ_KIND_SEP.get(rf.get('kind'), '-')
+        combos = ['%d%s%d' % (rf['axis_ban'], sep, b) for b in rf.get('partner_bans', [])]
+        marks = [_mk.get(int(b), '') for b in rf.get('partner_bans', [])]
+        lab = ('%s｜◎から単勝確率の高い3頭' % SHOBU_LABEL) if rf.get('shobu') else str(rf.get('desc') or '参考')
+        out.append((kn, combos, lab, marks))
+    return out
+
+
 def _write_bet_table(ws, current_row, title, headers, rows,
                      title_fill_color=None, row_fill_func=None):
     """表形式で買い目を書き込むヘルパー"""
@@ -3587,7 +3420,7 @@ def _run_output(grouped, output_csv, excel_path):
             ws.cell(row=current_row, column=1).alignment = Alignment(horizontal='center')
             current_row += 1
 
-            ws.cell(row=current_row, column=1, value=" 単勝確率=オッズ勝率×統計勝率の融合 | 単勝オッズ=予想オッズ(前売×人気オッズ) | 前売オッズ=補正前 | 馬番【緑】=単指数90以上(鉄板クラス) | 馬名【黄】=単指数90以上(鉄板馬) | 淡い緑=単勝確率が前売の評価より15%以上高い | 淡い青=予想オッズ9.9以下 | 淡い藍=騎手指数60以上 | 淡い橙=紐馬指数65以上 | 黄=期待値100以上 ")
+            ws.cell(row=current_row, column=1, value=" 単勝確率=オッズ勝率×統計勝率の融合 | 単勝オッズ=予想オッズ(前売×人気オッズ) | 前売オッズ=補正前 | 馬番【緑】=単指数90以上(鉄板クラス) | 馬名【黄】=単指数90以上(鉄板馬) | 淡い緑=単勝確率が前売の評価より15%以上高い | 淡い青=予想オッズ9.9以下 | 淡い藍=騎手指数60以上 | 淡い橙=紐馬指数58以上 | 黄=期待値100以上 ")
             current_row += 2
 
             if grouped.ngroups == 0:
@@ -3656,9 +3489,12 @@ def _run_output(grouped, output_csv, excel_path):
 
                     # ========== Excel書き込み ==========
                     race_title = f"{name[0]} {_dist_txt(name[1])} {name[2]}R ({name[3] or '-'}) | 荒れ度:{analysis['payout_level_score']} | {analysis['arare_class']}"
+                    _is_shobu = bool(analysis.get('shobu'))
+                    if _is_shobu:
+                        race_title = '★%s(単指数%.1f) ' % (SHOBU_LABEL, float(analysis.get('shobu_idx') or 0)) + race_title
                     ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=14)
                     cell = ws.cell(row=current_row, column=1, value=race_title)
-                    cell.fill = header_fill
+                    cell.fill = PatternFill(start_color="C00000", end_color="C00000", fill_type="solid") if _is_shobu else header_fill
                     cell.font = header_font
                     current_row += 1
 
@@ -3989,6 +3825,14 @@ def _run_output(grouped, output_csv, excel_path):
                                 ws, current_row, "馬単【%s】" % _tnote,
                                 _gz_headers, _ut_rows, row_fill_func=_fill_gz(_gz_ut_cond, '→'))
 
+                    # ★v137_001: 勝負レース/参考の買い目(◎→○▲△・表示のみ)
+                    for _kn, _combos, _lab, _mks in _ref_bet_lines(analysis):
+                        current_row = _write_bet_table(
+                            ws, current_row, "%s【%s】" % (_kn, _lab), ["軸馬→相手馬", "印"],
+                            [[_c, _m] for _c, _m in zip(_combos, _mks)],
+                            title_fill_color=(PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+                                              if _is_shobu else None))
+
                     # ★v136_020: 統計裏付け・観察(統計紐)の行(表示・記録のみ)
                     for _sl in _dq_text_lines(analysis) + _stat_text_lines(analysis):   # ★v136_021
                         _sc = ws.cell(row=current_row, column=1, value=_sl)
@@ -4058,7 +3902,7 @@ def _run_output(grouped, output_csv, excel_path):
                         f.write(f'高配当スコア: {high_payout_score}/100 （的中率と回収率の両立が期待できるレース）,,,,,,,,,,,,,\n')
                         f.write('優先推奨買い目（他の通常買い目は非表示）,,,,,,,,,,,,,\n')
                     else:
-                        f.write('おすすめ買い目 (回収率90%超マージンを見込んで):,,,,,,,,,,,,,\n')
+                        f.write('買い目(表示のみ):,,,,,,,,,,,,,\n')
 
                     f.write(',,,,,,,,,,,,,\n')
                     f.write('買い目,,,,,,,,,,,,,\n')
@@ -4124,6 +3968,10 @@ def _run_output(grouped, output_csv, excel_path):
                         _write_gz_bets(analysis.get('umatan_recs'), _gz_ut_cond_c,
                                        'umatan', '→', '馬単【%s】' % _tnote, _tk)
 
+                    for _kn, _combos, _lab, _mks in _ref_bet_lines(analysis):   # ★v137_001
+                        f.write('%s【%s】 %s\n' % (_kn, _lab, ' / '.join(_combos)))
+                    if analysis.get('shobu'):
+                        f.write('★%s(単指数%.1f・鉄板クラス)\n' % (SHOBU_LABEL, float(analysis.get('shobu_idx') or 0)))
                     for _dl in _dq_text_lines(analysis):   # ★v136_021 データ注意
                         f.write('⚠ ' + _dl + '\n')
                     # ★v136_019: 統計予想(参考・実弾外)
@@ -4645,7 +4493,7 @@ def run_gui():
     venue_cb = ttk.Combobox(_flt, textvariable=var_venue, values=['すべて'], state='readonly',
                             width=10, style='Bado.TCombobox', font=F['body'])
     venue_cb.pack(side='left')
-    ttk.Checkbutton(_flt, text='★採用のみ', variable=var_star_only, style='Bado.TCheckbutton',
+    ttk.Checkbutton(_flt, text='★勝負のみ', variable=var_star_only, style='Bado.TCheckbutton',
                     command=lambda: _apply_filter()).pack(side='left', padx=(px(10), 0))
     venue_cb.bind('<<ComboboxSelected>>', lambda e: _apply_filter())
 
@@ -4820,7 +4668,7 @@ def run_gui():
     tv_sum = ttk.Treeview(_sum_f, style='Horse.Treeview', show='tree headings',
                           columns=('buy', 'odds', 'hit', 'ev', 'note'))
     tv_sum.heading('#0', text='券種', anchor='w')
-    tv_sum.column('#0', width=_colw(170, '券種', '▾ 次点本線枠（表示のみ）'), anchor='w', stretch=False)
+    tv_sum.column('#0', width=_colw(170, '券種', '▾ 勝負レース ◎→○▲△'), anchor='w', stretch=False)
     for _c, _h, _w, _a, _smp in (('buy', '買い目', 70, 'center', '12-10'), ('odds', 'オッズ', 70, 'e', '相手99.9倍'),
                                  ('hit', '的中率', 66, 'e', '複勝62%'), ('ev', '期待値', 58, 'e', '188'),
                                  ('note', '条件・備考', 230, 'w', '')):
@@ -4917,9 +4765,7 @@ def run_gui():
         return _jc.split(' / ')[-1].strip() if ' / ' in _jc else ''
 
     def _has_star(analysis):
-        if analysis.get('force_reference'):
-            return False
-        return any(v > 0 for v in (analysis.get('gz_stakes') or {}).values())
+        return bool(analysis.get('shobu'))
 
     def _update_race_row(iid):
         name = _race_name_map.get(iid)
@@ -5092,8 +4938,8 @@ def run_gui():
         if _arare:
             _chip(chip_row, f'荒れ度 {a.get("payout_level_score", "")} ・ {_arare}', SURFACE2, TEXT2,
                   font=F['small']).pack(side='left', padx=(px(8), 0))
-        if _has_star(a):
-            _chip(chip_row, '★ 採用買い目あり', P['GZ']).pack(side='left', padx=(px(8), 0))
+        if a.get('shobu'):
+            _chip(chip_row, '★ %s(単指数%.1f)' % (SHOBU_LABEL, float(a.get('shobu_idx') or 0)), P['GZ']).pack(side='left', padx=(px(8), 0))
         elif a.get('force_reference'):
             _chip(chip_row, '参考のみ(実弾なし)', SURFACE2, MUTED, font=F['small']).pack(side='left', padx=(px(8), 0))
 
@@ -5389,7 +5235,7 @@ def run_gui():
                 pass
             _rdesc = str(refs[0].get('desc', '') or '')
             _rdesc = _rdesc.replace('◎→○▲△', '').strip('()（） ')
-            sec = tv_sum.insert('', 'end', text='参考予想 ◎→○▲△', open=True, tags=('section',),
+            sec = tv_sum.insert('', 'end', text=('%s ◎→○▲△' % SHOBU_LABEL) if a.get('shobu') else '参考予想 ◎→○▲△', open=True, tags=('section',),
                                 values=('', '', '', '', _rdesc))
             for rf in refs:
                 _sep = sep_of.get(rf.get('kind'), '-')
@@ -5402,7 +5248,7 @@ def run_gui():
             any_row = True
 
         if not any_row:
-            tv_sum.insert('', 'end', text='買い目なし', values=('', '', '', '', 'このレースは見送り'),
+            tv_sum.insert('', 'end', text='買い目なし', values=('', '', '', '', 'このレースは買い目なし'),
                           tags=('muted',))
 
     def _refresh_bet_tabs():
