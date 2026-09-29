@@ -2883,6 +2883,19 @@ h2::before{content:"";width:5px;height:18px;background:var(--brand2);border-radi
 .chip b{font-size:14.5px;font-variant-numeric:tabular-nums}
 .index .ax{color:var(--ink2);font-size:12px;white-space:nowrap}
 .empty{background:var(--paper);border:1px dashed var(--line);border-radius:12px;padding:16px;text-align:center;color:var(--ink3)}
+.tgs{display:flex;flex-direction:column;gap:8px}
+.tg{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.tg .h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tg .n{font-weight:800;font-size:15px}
+.tg .lv{font-size:11px;font-weight:700;padding:1px 9px;border-radius:9px;color:#fff;background:var(--brand2)}
+.tg .lv.warn{background:#8a8f98}
+.tg .how{margin:5px 0 0;font-size:12.5px;color:var(--ink2)}
+.tg .rc{margin:7px 0 4px;display:flex;flex-wrap:wrap;gap:5px}
+.tg .rc a,.tg .rc span{font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:var(--soft);border:1px solid var(--line);color:var(--ink);text-decoration:none}
+.tg .st{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--ink2);margin:4px 0}
+.tg .st b{color:var(--ink);font-variant-numeric:tabular-nums}
+.tg .tip{font-size:12.5px;line-height:1.65;color:var(--ink);margin:4px 0 0}
+.tgnote{font-size:11.5px;color:var(--ink3);line-height:1.6;margin:8px 2px 0}
 /* 見方 */
 .guide{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:12.5px;color:var(--ink2);line-height:1.7}
 .guide dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0}
@@ -3321,6 +3334,7 @@ def build_html_note(html_races, src_name):
            '<div class="kpi"><b>%d</b><span>勝負レースの買い目（点）</span></div></div></header>'
            % (len(cards), n_pick_races, n_pick_pts),
            '<h2>本日の勝負レース（発走順）</h2>', index_html,
+           '<h2>券種別の狙い方</h2>', _note_target_guide_html(index_rows),
            '<h2>予想表の見方</h2>', guide_html,
            '<h2>全レースの予想</h2>']
     out.extend(cards)
@@ -3386,6 +3400,59 @@ def _write_bet_table(ws, current_row, title, headers, rows,
         current_row += 1
     current_row += 1  # セクション間スペース
     return current_row
+
+
+# 勝負レース(◎の単指数90以上)の過去成績(2026/09/17〜29 の13日間・506R中42R。1点100円換算)。読者向けの解説に使う。
+NOTE_TARGET_STATS = dict(
+    period='9/17〜9/29の13日間', races=506, shobu=42,
+    fuku=dict(hit='42レース中42レース(100%)', roi='約106%'),
+    tan=dict(hit='約79%', roi='約101%'),
+    umaren=dict(hit_race='約79%', hit_pt='約26%', roi='約130%', roi_other='約94%'),
+    umatan=dict(hit_race='約62%', hit_pt='約21%', roi='約136%', roi_other='約99%'),
+    wide=dict(hit_race='約95%', hit_pt='約47%', roi='約99%'),
+)
+
+
+def _note_target_guide_html(index_rows):
+    """読者向け: どのレースを狙うべきかを券種別に解説する(勝負レースの一覧は当日の実データ)。"""
+    st = NOTE_TARGET_STATS
+    rows = sorted(index_rows, key=lambda t: (t[0] or '99:99', str(t[1]), t[2]))
+    if rows:
+        chips = ''.join('<a href="#%s">%s %dR</a>' % (a, _h(v), r) for _t, v, r, a, _tks, _n in rows)
+        rc = '<div class="rc">%s</div>' % chips
+    else:
+        rc = '<div class="rc"><span>本日は該当レースなし</span></div>'
+
+    def card(name, lv, how, stats, tip, warn=False):
+        return ('<div class="tg"><div class="h"><span class="n">%s</span><span class="lv%s">%s</span></div>'
+                '<div class="how">%s</div>%s<div class="st">%s</div><p class="tip">%s</p></div>'
+                % (name, ' warn' if warn else '', lv, how, rc, stats, tip))
+
+    def stat(*pairs):
+        return ''.join('<span>%s <b>%s</b></span>' % (k, v) for k, v in pairs)
+
+    cards = [
+        card('複勝｜守りたい人向け', 'いちばん安定', '◎の複勝を1点。',
+             stat(('的中', st['fuku']['hit']), ('回収率', st['fuku']['roi'])),
+             '過去の勝負レースでは◎が必ず3着以内に入りました。ただし配当は1.1〜1.3倍程度と低く、資金を大きく増やす券種ではありません。'),
+        card('単勝｜本命を素直に', '安定', '◎の単勝を1点。',
+             stat(('的中', st['tan']['hit']), ('回収率', st['tan']['roi'])),
+             '本命がそのまま勝つ形を狙います。オッズが低いので回収はほぼトントンです。'),
+        card('馬連｜バランス型(おすすめ)', '本命の券種', '◎から、紐の3頭(○▲△)への馬連3点。',
+             stat(('レースの的中', st['umaren']['hit_race']), ('1点あたり的中', st['umaren']['hit_pt']), ('回収率', st['umaren']['roi'])),
+             '当たりやすさと配当のバランスが一番よい券種です。勝負レース以外は過去の回収率が%s止まりなので、参考程度にしてください。' % st['umaren']['roi_other']),
+        card('馬単｜配当を狙う人向け', '高配当型', '◎→紐の3頭(○▲△)への馬単3点(◎が1着・紐が2着)。',
+             stat(('レースの的中', st['umatan']['hit_race']), ('1点あたり的中', st['umatan']['hit_pt']), ('回収率', st['umatan']['roi'])),
+             '当たった時の配当が大きい分、1点ごとの的中は約2割です。点数を絞りすぎず、3点まとめて買う想定です。勝負レース以外は回収率%s(参考)。' % st['umatan']['roi_other']),
+        card('ワイド｜とにかく当てたい人向け', '的中重視', '◎から紐の3頭(○▲△)へのワイド3点。勝負レースだけ表示します。',
+             stat(('レースの的中', st['wide']['hit_race']), ('1点あたり的中', st['wide']['hit_pt']), ('回収率', st['wide']['roi'])),
+             'よく当たりますが配当が低く、回収はトントンです。勝負レース以外は回収率が低かったため表示していません。'),
+    ]
+    return ('<div class="tgs">%s</div>'
+            '<div class="tgnote">・狙うのは<b>勝負レース(◎の単指数が90以上)だけ</b>です。%sの%dレース中%dレース(約%d%%)しか該当せず、1日に数レースしか出ません。無理に広げず、該当したレースだけに絞ります。<br>'
+            '・勝負レース以外は、特にA級軸(◎の単勝確率が中程度)のレースの回収率が低く、見送りが無難です。<br>'
+            '・数字は過去の集計(1点100円)です。将来の的中・回収を保証するものではありません。損失のない範囲でお楽しみください。</div>'
+            % (''.join(cards), _h(st['period']), st['races'], st['shobu'], round(100.0 * st['shobu'] / st['races'])))
 
 
 def _run_output(grouped, output_csv, excel_path):
