@@ -39,7 +39,7 @@
 #     混ぜない)・騎乗数・減量騎手・この馬とのコンビ成績を、人気オッズの係数で合成し偏差値化。
 #   【紐馬指数】(新ロジック・0〜100、レース内で最も紐向きの馬=100)
 #     紐は『◎が勝ったときに2・3着に来る馬』なので、(複勝確率−単勝確率)=2〜3着に来る確率を土台に、
-#     市場より来ると見ている分(複勝確率 ÷ オッズ勝率から見た複勝確率)の妙味を √ で掛ける。
+#     配当の大きさとして予想オッズの √ を掛ける(来やすさと配当のバランス)。
 #   【単指数】(100点満点・90以上=鉄板クラス) = 単勝確率を 100*(1-10^(-p/0.625)) で換算(単勝確率62.5%=90点)。
 #     ◎は従来どおり連対確率(2着以内に来る確率)1位。○▲△ は v136_010 の方式
 #     (◎との馬連確率 × 妙味、λ=2)。穴 = 補正前人気4〜9位で 単勝確率がオッズ勝率の1.21倍以上・複勝確率25%以上。
@@ -160,8 +160,10 @@ POP_ODDS_W_RAW = _gz_env_num('POP_ODDS_W_RAW', 0.70, float)
 POP_COEF = dict(jloo=0.350, jride=0.297, app=-0.186, lw=0.145, lv=0.462, lc=0.242,
                 exp=-0.414, bt=0.290, bt_na=0.323)
 JOCKEY_LOO_SHRINK = 2.0          # 騎手の他の騎乗馬の人気を 0(平均)へ縮める強さ(騎乗数換算)
-# 紐馬指数の妙味の強さ(複勝確率 ÷ 市場の複勝確率 の何乗を掛けるか)
-HIMO_VALUE_POWER = _gz_env_num('HIMO_VALUE_POWER', 0.5, float)
+# 紐馬指数の配当の重み(2〜3着に来る確率 × 予想オッズ^HIMO_ODDS_POWER)
+#   ★v137_001: 旧式(×(複勝確率÷市場の複勝確率)^0.5)は比がほぼ1で妙味が効かず、単勝確率順とほぼ同じだった。
+#   506Rで ◎→紐馬指数上位3頭 の回収率 馬連78.8→88.0%・馬単77.7→88.8%(1位馬の複勝的中は50→44%)。
+HIMO_ODDS_POWER = _gz_env_num('HIMO_ODDS_POWER', 0.5, float)
 # 穴印: 補正前人気がこの範囲 & 単勝確率/オッズ勝率 >= ANA_RATIO_MIN & 複勝確率 >= ANA_PLACE_MIN
 ANA_POP_RANGE = (4, 9)
 ANA_RATIO_MIN = 1.21      # ★v137_001: 尖らせ後も旧(1.30)と同じ馬が選ばれるよう調整
@@ -1450,15 +1452,13 @@ def generate_analysis(group):
         group['統計勝率'] = np.nan
     p_win = ensemble_win_probs(p_odds, p_stat)
     fp = finish_probs(p_win)
-    fp_mkt = finish_probs(p_odds)
     group['単勝確率'] = np.round(p_win * 100.0, 1)
     group['複勝確率'] = np.round(fp['top3'] * 100.0, 1)
     group['単指数'] = np.round(tan_index(p_win), 1)                    # 単勝確率の100点満点換算(90以上=鉄板クラス)
     group['単勝期待値'] = np.round(p_win * group['adjusted_odds'].to_numpy(dtype=float) * 100.0).astype(int)
-    # ── 紐馬指数: 2〜3着に来る確率 × 妙味^HIMO_VALUE_POWER (レース内最大=100) ──
+    # ── 紐馬指数: 2〜3着に来る確率 × 予想オッズ^HIMO_ODDS_POWER (レース内最大=100) ──
     _sub = np.clip(fp['top3'] - p_win, 1e-6, None)
-    _val = np.clip(fp['top3'] / np.clip(fp_mkt['top3'], 1e-6, None), 0.5, 2.0)
-    _hs = _sub * np.power(_val, HIMO_VALUE_POWER)
+    _hs = _sub * np.power(np.clip(group['adjusted_odds'].to_numpy(dtype=float), 1.0, None), HIMO_ODDS_POWER)
     group['紐馬指数'] = np.round(100.0 * _hs / _hs.max(), 1)
     # ── 人気(予想オッズ順) / 前売人気 ──
     _ord = sorted(range(n), key=lambda i: (group.at[i, 'adjusted_odds'], group.at[i, '番']))
@@ -2378,7 +2378,7 @@ def _gz_legend_html():
                   '複勝率・馬連/ワイドの的中率は単勝率から Harville 型(2着^%.2f・3着^%.2f で割引)。'
                   '単オッズ=予想オッズ(前売 %.0f%% × 人気O %.0f%% の対数平均、前売と同じ控除率)。'
                   '人気O=騎手・成績・当地・コンビ・最高タイムから推定した人気の単勝オッズ。'
-                  '単指数=単勝確率の100点満点換算(90以上=鉄板クラス)、紐馬指数=2〜3着に来る確率×妙味(レース内最大100)。騎手指数=50が平均。</span>'
+                  '単指数=単勝確率の100点満点換算(90以上=鉄板クラス)、紐馬指数=2〜3着に来る確率×√予想オッズ(レース内最大100)。騎手指数=50が平均。</span>'
                   % (ENS_W_ODDS, ENS_W_STAT, PLACE_LAMBDA2, PLACE_LAMBDA3,
                      POP_ODDS_W_RAW * 100, (1 - POP_ODDS_W_RAW) * 100))
     if STAT_DEBA_RACES:
@@ -3294,7 +3294,7 @@ def build_html_note(html_races, src_name):
         '<dt>期待値</dt><dd>勝率×予想オッズ。100を超えるほど、オッズに対して割安な馬です。</dd>'
         '<dt>単指数</dt><dd>単勝確率を100点満点に換算した点数。90以上は鉄板クラス(単勝確率' + ('%g' % TAN_IDX_IRON_WP) + '%以上)。◎は連対確率1位の馬です。<span class="anav">橙色</span>は穴候補の馬。</dd>'
         + ('<dt>○▲△</dt><dd>◎の相手(紐)3頭。勝負レース（◎の単指数90以上）は単勝確率の高い順、それ以外のレースは期待値（勝率×予想オッズ）の高い順に選びます。</dd>' if REF_NEW_LOGIC else '') +
-        '<dt>紐馬</dt><dd>紐馬指数(0〜100)。2〜3着に来る確率に、オッズより来ると見ている分の妙味を掛けたもの'
+        '<dt>紐馬</dt><dd>紐馬指数(0〜100)。2〜3着に来る確率に、予想オッズの平方根(配当の大きさ)を掛けたもの'
         '(そのレースで最も紐向きの馬が100)。</dd>'
         '<dt>騎手指数</dt><dd>騎手の評価を偏差値で表したもの(50が平均)。その日に乗る他の馬の人気・騎乗数・減量騎手・'
         'この馬とのコンビ成績から計算。60以上は好騎手。</dd>'
@@ -3426,7 +3426,7 @@ def _run_output(grouped, output_csv, excel_path):
             ws.cell(row=current_row, column=1).alignment = Alignment(horizontal='center')
             current_row += 1
 
-            ws.cell(row=current_row, column=1, value=" 単勝確率=オッズ勝率×統計勝率の融合 | 単勝オッズ=予想オッズ(前売×人気オッズ) | 前売オッズ=補正前 | 馬番【緑】=単指数90以上(鉄板クラス) | 馬名【黄】=単指数90以上(鉄板馬) | 淡い緑=単勝確率が前売の評価より15%以上高い | 淡い青=予想オッズ9.9以下 | 淡い藍=騎手指数60以上 | 淡い橙=紐馬指数60以上 | 黄=期待値100以上 ")
+            ws.cell(row=current_row, column=1, value=" 単勝確率=オッズ勝率×統計勝率の融合 | 単勝オッズ=予想オッズ(前売×人気オッズ) | 前売オッズ=補正前 | 馬番【緑】=単指数90以上(鉄板クラス) | 馬名【黄】=単指数90以上(鉄板馬) | 淡い緑=単勝確率が前売の評価より15%以上高い | 淡い青=予想オッズ9.9以下 | 淡い藍=騎手指数60以上 | 淡い橙=紐馬指数84以上 | 黄=期待値100以上 ")
             current_row += 2
 
             if grouped.ngroups == 0:
@@ -3559,7 +3559,7 @@ def _run_output(grouped, output_csv, excel_path):
                                 c.fill = new_s_axis_fill
                             if col_idx == 6 and _val_hi:
                                 c.fill = high_single_fill
-                            if col_idx == 9 and isinstance(v, (int, float)) and v >= 60:
+                            if col_idx == 9 and isinstance(v, (int, float)) and v >= 84:
                                 c.fill = himba_idx_fill
                             if col_idx == 10 and v == '◎':
                                 c.fill = iron_red
