@@ -48,7 +48,7 @@
 #     ◎の単指数が90以上(単勝確率62.5%以上)のレースを『勝負レース』として表示する(2026/09/17〜29の506Rで約8%)。
 #     紐(○▲△)の選び方: 勝負レース=単勝確率の高い順3頭 / それ以外のレース=期待値(単勝確率×予想オッズ)の高い順3頭。
 #       (506Rの検証: 単指数90以上は単勝確率順が現行より有利、それ以外は期待値順が有利。REF_PARTNER_MODE=legacy で従来の妙味重視(λ=2)に戻る)
-#     買い目は ◎→○▲△ の馬連・ワイド・馬単各3点(表示のみ。馬単は◎1着→紐2着)。統計予想(統計◎○▲△・参考買い目)は従来どおり表示。
+#     買い目は ◎→○▲△ の馬連・ワイド・馬単各3点(表示のみ。馬単は◎1着→紐2着)。勝負レース以外はワイドを表示しない。統計予想(統計◎○▲△・参考買い目)は従来どおり表示。
 #     軸級・信頼度・レース分類は ◎ の単勝確率/複勝確率で判定。
 #
 #   【出力列の置き換え】(列の数・並びは v136_021 と同じ)
@@ -1185,6 +1185,8 @@ GZ_KIND_JP = {'umatan': '馬単', 'umaren': '馬連', 'wide': 'ワイド'}
 GZ_KIND_SEP = {'umatan': '→', 'umaren': '-', 'wide': '-'}
 # 参考予想(◎→○▲△)の券種
 REF_HIMO_BET_TYPES = ('umaren', 'wide', 'umatan')   # 馬連・ワイド・馬単(◎→紐)
+# 勝負レース以外で表示しない券種(ワイドは勝負レース以外の回収率が低いため非表示)
+REF_HIDE_KINDS_NON_SHOBU = ('wide',)
 JITEN_ENABLE = False
 JITEN_MAP_DEFS = []
 _AXIS_LABEL = {}
@@ -1547,6 +1549,8 @@ def generate_analysis(group):
     reference_bets = []
     if _partners:
         for kd in REF_HIMO_BET_TYPES:
+            if not _shobu and kd in REF_HIDE_KINDS_NON_SHOBU:
+                continue
             reference_bets.append(dict(kind=kd, name='', axis_ban=_ax_ban,
                                        partner_bans=[int(group.at[i, '番']) for i in _partners],
                                        stats={}, is_fallback=False, shobu=_shobu,
@@ -2367,7 +2371,7 @@ def _gz_legend_html():
     _parts.append(' <b>【%s】</b>' % SHOBU_LABEL)
     _parts.append(' <span style="color:#ffcf70">■◎の単指数が90以上(単勝確率%g%%以上)のレース。'
                   '紐(○▲△)は単勝確率の高い順に3頭。それ以外のレースは期待値(単勝確率×予想オッズ)の高い順に3頭。'
-                  '買い目は◎→○▲△の馬連・ワイド・馬単各3点(表示のみ)。</span>' % TAN_IDX_IRON_WP)
+                  '買い目は◎→○▲△の馬連・ワイド・馬単各3点(表示のみ。勝負レース以外はワイドなし)。</span>' % TAN_IDX_IRON_WP)
     # ★v137_001: 確率・オッズの説明
     _parts.append(' <b>【確率とオッズ】</b>')
     _parts.append(' <span style="color:#d9c8f5">■単勝率=オッズ勝率(前売=補正前の単勝オッズを正規化)^%.2f × 統計%%^%.2f の融合。'
@@ -2386,7 +2390,7 @@ def _gz_legend_html():
         _parts.append(' <b>【統計予想】</b> <span style="color:#ffb4a8">■出馬表HTML未読込 → 統計%なし・単勝率はオッズ勝率のみ</span>')
     _parts.append(' <b>【参考予想】</b>')
     _parts.append(' <span style="color:#9aa0a6">■紐 軸=◎(◎=連対率1位) × 予想印○▲△の3頭'
-                  '(勝負レースは単勝確率順、それ以外は期待値順)。馬連・ワイド・馬単各3点を表示。'
+                  '(勝負レースは単勝確率順、それ以外は期待値順)。勝負レースは馬連・ワイド・馬単、それ以外は馬連・馬単を各3点表示。'
                   'いずれも表示のみで実弾対象外。</span>')
     return NL_JOIN_GZ.join(_parts)
 
@@ -3302,7 +3306,7 @@ def build_html_note(html_races, src_name):
            if USE_NEW_JUDGE else
            '<dt>信頼度</dt><dd>S〜Dは軸馬の信頼度(Sが最も高い)。数字は0〜100で、そのレースの買い目が的中しやすいかの目安です。</dd>') +
         '<dt>勝負レース</dt><dd>◎の単指数が90以上のレース（黄色の枠）。◎から単勝確率の高い順に3頭へ、馬連・ワイド・馬単を表示します。組番は馬番です。</dd>'
-        '<dt>参考買い目</dt><dd>勝負レース以外のレースで、◎から期待値（勝率×予想オッズ）の高い3頭への馬連・ワイド・馬単（馬単は◎が1着・相手が2着）。参考としてご覧ください。</dd>'
+        '<dt>参考買い目</dt><dd>勝負レース以外のレースで、◎から期待値（勝率×予想オッズ）の高い3頭への馬連・馬単（馬単は◎が1着・相手が2着）。参考としてご覧ください。</dd>'
         '</dl></div>')
 
     title = '%s 地方競馬予想%s' % (NOTE_BRAND, (' ' + date_label) if date_label else '')
