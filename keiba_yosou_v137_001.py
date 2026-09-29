@@ -37,11 +37,11 @@
 #   【紐馬指数】(新ロジック・0〜100、レース内で最も紐向きの馬=100)
 #     紐は『◎が勝ったときに2・3着に来る馬』なので、(複勝確率−単勝確率)=2〜3着に来る確率を土台に、
 #     市場より来ると見ている分(複勝確率 ÷ オッズ勝率から見た複勝確率)の妙味を √ で掛ける。
-#   【軸馬指数】= 連対確率(2着以内に来る確率%)。◎ はこの1位。○▲△ は v136_010 の方式
+#   【単指数】(100点満点・90以上=鉄板クラス) = 単勝確率を 100*(1-10^(-p/0.55)) で換算(単勝確率55%=90点)。
+#     ◎は従来どおり連対確率(2着以内に来る確率)1位。○▲△ は v136_010 の方式
 #     (◎との馬連確率 × 妙味、λ=2)。穴 = 補正前人気4〜9位で 単勝確率がオッズ勝率の1.3倍以上・複勝確率25%以上。
-#   【単指数・複指数】は使わない(予想CSVが無いので存在しない)。
 #
-#   【本線枠(新条件・未検証)】旧 UR1/UR2/WD1 は単指数を使うため廃止し、単指数90 の役を
+#   【本線枠(新条件・未検証)】旧 UR1/UR2/WD1 は(旧)外部AIの単指数90を使っていたため廃止し、その役を
 #     『統計勝率』(オッズと独立した評価)に置き換えた同じ形の条件にした。成績の裏付けはまだ無い。
 #       EU1 馬連① 軸=単勝確率最大(45%以上)・統計勝率35%以上・予想オッズ1.9倍以下 × 単勝確率8以上→紐馬指数1位
 #       EU2 馬連② 同じ軸で予想オッズ1.4倍以下 × 人気3以内&紐馬指数50以上→紐馬指数1位
@@ -52,7 +52,7 @@
 #     観察条件 ST1〜ST6 は旧軸に依存するため停止。軸級・信頼度・レース分類は ◎ の単勝確率/複勝確率で判定。
 #
 #   【出力列の置き換え】(列の数・並びは v136_021 と同じ)
-#     研究用HTML: 騎手補正→騎手指数 / 単指数→前売(補正前単勝オッズ) / 複指数→人気O(人気オッズ) /
+#     研究用HTML: 騎手補正→騎手指数 / (旧)単指数の列→前売(補正前単勝オッズ) / (旧)複指数の列→人気O(人気オッズ) /
 #                 融合%→オッズ%(オッズ勝率)。単オッズ=予想オッズ、人気=予想オッズの順。脚質は出馬表HTMLから取得(取れない馬は『-』)。
 #     Excel/CSV も同じ置き換え。keiba_tool008 で列名を見ている場合は読み替えが必要。
 #     版情報 meta: bado-version=v137_001 / bado-logic に prob=odds+stat;honsen=ens1。
@@ -616,7 +616,7 @@ STAT_AXIS_CODES = ('EU1', 'EU2', 'EW1', 'XU1')
 # 軸の種類 → generate_analysis の軸キー
 STAT_AXIS_KEY = {'EU1': 'E:ens45max&st35&odds<1.95', 'EU2': 'E:ens45max&st35&odds<1.45',
                  'EW1': 'E:ens50max&pop1&st50', 'XU1': 'E:ens50max&odds<1.95'}
-# ★v136_020 の観察条件 ST1〜ST6 は旧軸(単指数)に依存するため停止(空)。
+# ★v136_020 の観察条件 ST1〜ST6 は旧軸((旧)外部AIの単指数)に依存するため停止(空)。
 STAT_OBS_DEFS = []
 
 
@@ -1187,7 +1187,7 @@ NSL_TIER_REFERENCE_ONLY = set()     # 参考強制する信頼度区分: なし
 
 # ══════════════════════════════════════════════════════════════════
 # ★v137_001: 本線枠(新条件・未検証)
-#   旧 UR1/UR2/WD1 と同じ形で、単指数90(外部AIの評価)の役を 統計勝率(オッズと独立な評価)に置換。
+#   旧 UR1/UR2/WD1 と同じ形で、(旧)外部AIの単指数90の役を 統計勝率(オッズと独立な評価)に置換。
 #   判定値は予想表の表示値(小数1桁)。単勝確率=アンサンブル、予想オッズ/人気=予想表の単オッズ/人気。
 #   紐 = 条件を満たす馬のうち紐馬指数1位の1頭。軸が条件を満たさなければ見送り(繰り上げなし)。
 #   p/pt/hit/vroi 等の検証統計はまだ無いので 0。
@@ -1299,6 +1299,26 @@ def ensemble_win_probs(p_odds, p_stat):
     lz = (ENS_W_ODDS * np.log(np.clip(p_odds, 1e-6, None))
           + ENS_W_STAT * np.log(np.clip(p_stat, 1e-6, None)))
     return _normalize(np.exp(lz - lz.max()))
+
+
+TAN_IDX_IRON_WP = _gz_env_num('TAN_IDX_IRON_WP', 55.0, float)   # 単勝確率(%)がこの値で単指数=90(鉄板クラス)
+TAN_IDX_IRON = 90.0
+
+
+def _axis_is_iron(analysis):
+    try:
+        t = analysis['table']
+        return bool((t.loc[t['印'] == '◎', '単指数'] >= TAN_IDX_IRON).any())
+    except Exception:
+        return False
+
+
+def tan_index(p_win):
+    """単指数(100点満点)。単勝確率p(0〜1)を 100*(1-10^(-p/p90)) で換算(p90=TAN_IDX_IRON_WP/100)。
+    単勝確率55%で90点=鉄板クラス(2026/09/22〜29の360Rで55%以上は複勝27/27的中・単勝70%)。
+    30%→71点 / 45%→85点 / 70%→95点。単調増加なので単指数の大小は単勝確率の大小と同じ。"""
+    p = np.clip(np.asarray(p_win, dtype=float), 0.0, None)
+    return 100.0 * (1.0 - np.power(10.0, -p / (TAN_IDX_IRON_WP / 100.0)))
 
 
 def finish_probs(p, lam2=None, lam3=None):
@@ -1467,7 +1487,7 @@ def generate_analysis(group):
     fp_mkt = finish_probs(p_odds)
     group['単勝確率'] = np.round(p_win * 100.0, 1)
     group['複勝確率'] = np.round(fp['top3'] * 100.0, 1)
-    group['軸馬指数'] = np.round(fp['top2'] * 100.0, 1)                  # = 連対確率
+    group['単指数'] = np.round(tan_index(p_win), 1)                    # 単勝確率の100点満点換算(90以上=鉄板クラス)
     group['単勝期待値'] = np.round(p_win * group['adjusted_odds'].to_numpy(dtype=float) * 100.0).astype(int)
     # ── 紐馬指数: 2〜3着に来る確率 × 妙味^HIMO_VALUE_POWER (レース内最大=100) ──
     _sub = np.clip(fp['top3'] - p_win, 1e-6, None)
@@ -1515,7 +1535,7 @@ def generate_analysis(group):
 
     _wp_order = sorted(range(n), key=lambda i: (-p_win[i], group.at[i, '番']))
 
-    # ── 予想印: ◎=軸馬指数(連対確率)1位 / ○▲△=◎との馬連確率×妙味(ref_partner_order) ──
+    # ── 予想印: ◎=連対確率1位 / ○▲△=◎との馬連確率×妙味(ref_partner_order) ──
     axis_idx = min(range(n), key=lambda i: (-fp['top2'][i], group.at[i, '番']))
     group.at[axis_idx, '印'] = '◎'
     _partners = []
@@ -1695,7 +1715,7 @@ def generate_analysis(group):
 
     # ── 表示テーブル(単勝確率降順) ──
     table_columns = ['番', '馬名', '騎手', KISHU_DEV_COL, '展開', '前売オッズ', '人気オッズ', '前売人気',
-                     '軸馬指数', '紐馬指数', '印', 'adjusted_popularity', 'adjusted_odds',
+                     '単指数', '紐馬指数', '印', 'adjusted_popularity', 'adjusted_odds',
                      '単勝確率', '複勝確率', '単勝期待値', '統計勝率', 'オッズ勝率', '統計印']
     table_df = group[table_columns].copy()
     table_df['_o'] = -p_win
@@ -2025,19 +2045,31 @@ def _deba_leg_styles(race):
     return out
 
 
-def _deba_autoload(folder):
+def _deba_has_html(folder):
+    import glob as _g
+    return bool(_g.glob(_os.path.join(str(folder), '**', 'R[0-9]*_*.htm*'), recursive=True))
 
-    """出馬表HTMLが未読込で、オッズCSVのフォルダ(またはサブフォルダ)に R??_*.html があれば読む。"""
-    if STAT_DEBA_RACES or _bsm is None or not folder:
+
+def _deba_autoload(folder):
+    """出馬表HTML(R??_*.html)を、オッズCSVのフォルダ → 予想コード本体のフォルダ の順に
+    (サブフォルダも含めて)探して読む。対象日のレースが見つからなければ次の場所も試す。"""
+    if STAT_DEBA_RACES or _bsm is None:
         return
-    try:
-        import glob as _g
-        _hit = (_g.glob(_os.path.join(str(folder), 'R[0-9][0-9]_*.htm*'))
-                or _g.glob(_os.path.join(str(folder), '*', 'R[0-9][0-9]_*.htm*')))
-        if _hit:
-            stat_load_deba_folder(folder)
-    except Exception as _e:
-        print(f'  [統計予想] 出馬表HTMLの自動読込に失敗: {_e}')
+    _code_dir = _os.path.dirname(_os.path.abspath(__file__))
+    _cands = []
+    for _d in (folder, _code_dir):
+        if _d and str(_d) not in _cands and _os.path.isdir(str(_d)):
+            _cands.append(str(_d))
+    for _d in _cands:
+        try:
+            if not _deba_has_html(_d):
+                continue
+            stat_load_deba_folder(_d)
+            if not STAT_TARGET_DATE or any(k[0] == STAT_TARGET_DATE for k in STAT_DEBA_RACES):
+                return
+            print(f'  [統計予想] {_d} に対象日({STAT_TARGET_DATE})の出馬表がないため次の場所も探します。')
+        except Exception as _e:
+            print(f'  [統計予想] 出馬表HTMLの自動読込に失敗({_d}): {_e}')
 
 
 def _read_odds_csv(path):
@@ -2500,7 +2532,7 @@ def _gz_legend_html():
                   '複勝率・馬連/ワイドの的中率は単勝率から Harville 型(2着^%.2f・3着^%.2f で割引)。'
                   '単オッズ=予想オッズ(前売 %.0f%% × 人気O %.0f%% の対数平均、前売と同じ控除率)。'
                   '人気O=騎手・成績・当地・コンビ・最高タイムから推定した人気の単勝オッズ。'
-                  '軸馬指数=連対率(%%)、紐馬指数=2〜3着に来る確率×妙味(レース内最大100)。騎手指数=50が平均。</span>'
+                  '単指数=単勝確率の100点満点換算(90以上=鉄板クラス)、紐馬指数=2〜3着に来る確率×妙味(レース内最大100)。騎手指数=50が平均。</span>'
                   % (ENS_W_ODDS, ENS_W_STAT, PLACE_LAMBDA2, PLACE_LAMBDA3,
                      POP_ODDS_W_RAW * 100, (1 - POP_ODDS_W_RAW) * 100))
     if STAT_DEBA_RACES:
@@ -2511,7 +2543,7 @@ def _gz_legend_html():
     else:
         _parts.append(' <b>【統計予想】</b> <span style="color:#ffb4a8">■出馬表HTML未読込 → 統計%なし・単勝率はオッズ勝率のみ</span>')
     _parts.append(' <b>【参考予想】</b>')
-    _parts.append(' <span style="color:#9aa0a6">■紐 軸=◎(軸馬指数=連対率1位) × 予想印○▲△の3頭'
+    _parts.append(' <span style="color:#9aa0a6">■紐 軸=◎(◎=連対率1位) × 予想印○▲△の3頭'
                   '(◎との馬連の当たりやすさに対し、配当の妙味を重視した上位3頭)。馬連・ワイド各3点を表示。'
                   'いずれも表示のみで実弾対象外。</span>')
     return NL_JOIN_GZ.join(_parts)
@@ -2690,7 +2722,7 @@ def build_html_nar(html_races, src_name):
             fp = float(row.get('複勝確率', 0) or 0)
             himo = row.get('紐馬指数', '')
             try:
-                ens_v = float(row.get('軸馬指数', '') or 0)
+                ens_v = float(row.get('単指数', '') or 0)
                 ens_txt = f'{ens_v:.1f}'
             except Exception:
                 ens_txt = ''
@@ -2928,7 +2960,7 @@ def build_html_nar(html_races, src_name):
           <table class="grid"><thead><tr>
             <th>印</th><th>枠</th><th>馬番</th><th>馬名</th><th>性齢</th><th>斤量</th>
             <th>騎手</th><th>{KISHU_DEV_LABEL}</th><th>脚質</th><th>人気</th><th>単オッズ</th>
-            <th>単勝率</th><th>複勝率</th><th>期待値</th><th>前売</th><th>人気O</th><th>軸馬指数</th><th>紐馬指数</th><th>統計印</th><th>統計%</th><th>オッズ%</th>
+            <th>単勝率</th><th>複勝率</th><th>期待値</th><th>前売</th><th>人気O</th><th>単指数</th><th>紐馬指数</th><th>統計印</th><th>統計%</th><th>オッズ%</th>
           </tr></thead><tbody>{''.join(rows)}</tbody></table>
           <div class="buys">{''.join(buys)}</div>{_data_note_html(analysis)}{_stat_block_html(analysis)}</div>""")
     parts.append('<div class="footer">v137_001 オッズ×統計 アンサンブル版。本線枠・次点は新条件で未検証。損失許容の範囲で。</div></body></html>')
@@ -3232,7 +3264,7 @@ def build_html_note(html_races, src_name):
             ev = _f(row.get('単勝期待値'), 0.0)
             # ★v137_001: note版は前売(補正前単勝オッズ)・人気オッズを表示しない(単勝オッズと軸馬/紐馬指数のみ)。
             od = _f(row.get('単勝オッズ'), 0.0)
-            ens = _f(row.get('軸馬指数'))
+            ens = _f(row.get('単指数'))
             himo = _f(row.get('紐馬指数'))
             kdev = _f(ex.get('kishu_dev', ''))
             kidx = _f(ex.get('kishu_idx', ''))
@@ -3382,7 +3414,7 @@ def build_html_note(html_races, src_name):
               '<th rowspan="2">脚質</th><th colspan="2" class="g1">オッズ</th>'
               '<th colspan="3" class="g1">予測(オッズ×統計)</th><th colspan="3" class="g1">指数</th></tr>'
               '<tr><th class="g1">人気</th><th>単勝</th><th class="g1">勝率%</th><th>複勝率%</th><th>期待値</th>'
-              '<th class="g1">軸馬</th><th>紐馬</th><th>騎手<br>指数</th></tr></thead><tbody>'
+              '<th class="g1">単指数</th><th>紐馬</th><th>騎手<br>指数</th></tr></thead><tbody>'
             + ''.join(trs) + '</tbody></table></div>'
             + '<div class="buys">%s</div></section>' % ''.join(buys))
 
@@ -3415,7 +3447,7 @@ def build_html_note(html_races, src_name):
         '<dt>単勝</dt><dd>予想オッズ。前売の単勝オッズと、人気になりそうな要素(騎手・成績・当地実績・最高タイム)から'
         '推定したオッズを合わせたもの。人気はこの順番です。</dd>'
         '<dt>期待値</dt><dd>勝率×予想オッズ。100を超えるほど、オッズに対して割安な馬です。</dd>'
-        '<dt>軸馬</dt><dd>軸馬指数。2着以内に入る推定確率(%)。◎はこの1位です。<span class="anav">橙色</span>は穴候補の馬。</dd>'
+        '<dt>単指数</dt><dd>単勝確率を100点満点に換算した点数。90以上は鉄板クラス(単勝確率55%以上)。◎は連対確率1位の馬です。<span class="anav">橙色</span>は穴候補の馬。</dd>'
         + ('<dt>○▲△</dt><dd>◎との組み合わせで、当たりやすさに加えて「配当の妙味」を重視して選んだ3頭。参考買い目(◎から馬連・ワイド各3点)の相手です。</dd>' if REF_NEW_LOGIC else '') +
         '<dt>紐馬</dt><dd>紐馬指数(0〜100)。2〜3着に来る確率に、オッズより来ると見ている分の妙味を掛けたもの'
         '(そのレースで最も紐向きの馬が100)。推奨買い目の相手選びに使います。</dd>'
@@ -3531,7 +3563,7 @@ def _run_output(grouped, output_csv, excel_path):
             ws.cell(row=current_row, column=1).alignment = Alignment(horizontal='center')
             current_row += 1
 
-            ws.cell(row=current_row, column=1, value=" 単勝確率=オッズ勝率×統計勝率の融合 | 単勝オッズ=予想オッズ(前売×人気オッズ) | 前売オッズ=補正前 | 馬番【緑】=軸馬指数(連対率)60以上 | 馬名【黄】=単勝確率50%以上&人気1 | 淡い緑=単勝確率が前売の評価より15%以上高い | 淡い青=予想オッズ9.9以下 | 淡い藍=騎手指数60以上 | 淡い橙=紐馬指数65以上 | 黄=期待値100以上 ")
+            ws.cell(row=current_row, column=1, value=" 単勝確率=オッズ勝率×統計勝率の融合 | 単勝オッズ=予想オッズ(前売×人気オッズ) | 前売オッズ=補正前 | 馬番【緑】=単指数90以上(鉄板クラス) | 馬名【黄】=単指数90以上(鉄板馬) | 淡い緑=単勝確率が前売の評価より15%以上高い | 淡い青=予想オッズ9.9以下 | 淡い藍=騎手指数60以上 | 淡い橙=紐馬指数65以上 | 黄=期待値100以上 ")
             current_row += 2
 
             if grouped.ngroups == 0:
@@ -3591,10 +3623,10 @@ def _run_output(grouped, output_csv, excel_path):
                         if not axis_row_local.empty:
                             axis_ban_str = str(int(axis_row_local['番'].iloc[0]))
                             axis_name_str = axis_row_local['馬名'].iloc[0]
-                    is_iron_horse = '単90以上鉄板馬' in str(analysis.get('axis_class', ''))
+                    is_iron_horse = _axis_is_iron(analysis)
 
-                    # ★v137_001: 鉄板馬 = 単勝確率50%以上 & 人気1(予想オッズ)
-                    iron_mask = ((analysis['table']['単勝確率'] >= 50) & (analysis['table']['単勝人気'] == 1))
+                    # ★v137_001: 鉄板馬 = 単指数90以上(単勝確率55%以上)
+                    iron_mask = (analysis['table']['単指数'] >= TAN_IDX_IRON)
                     has_iron = bool(iron_mask.any())
                     iron_bans = set(int(b) for b in analysis['table'].loc[iron_mask, '番'].dropna().astype(int).tolist()) if has_iron else set()
 
@@ -3606,7 +3638,7 @@ def _run_output(grouped, output_csv, excel_path):
                     cell.font = header_font
                     current_row += 1
 
-                    headers = ['番','馬名','騎手',KISHU_DEV_LABEL,'展開','前売オッズ','人気オッズ','軸馬指数','紐馬指数','印','単勝人気','単勝オッズ','単勝確率','複勝確率','単勝期待値','統計印','統計勝率','オッズ勝率']
+                    headers = ['番','馬名','騎手',KISHU_DEV_LABEL,'展開','前売オッズ','人気オッズ','単指数','紐馬指数','印','単勝人気','単勝オッズ','単勝確率','複勝確率','単勝期待値','統計印','統計勝率','オッズ勝率']
                     for col_idx, h in enumerate(headers, 1):
                         c = ws.cell(row=current_row, column=col_idx, value=h)
                         c.fill = header_fill
@@ -3625,7 +3657,7 @@ def _run_output(grouped, output_csv, excel_path):
                         pop = int(row['単勝人気']) if not pd.isna(row['単勝人気']) else 99
                         fuku_prob = round(row['複勝確率'], 1)
                         ban_no = int(row['番']) if not pd.isna(row['番']) else None
-                        is_green_axis = (_nv(row['軸馬指数']) or 0) >= 60
+                        is_green_axis = (_nv(row['単指数']) or 0) >= TAN_IDX_IRON
                         is_iron_horse_row = ban_no in iron_bans if has_iron else False
                         try:
                             _val_hi = float(row['単勝確率']) >= 1.15 * float(row['オッズ勝率']) and float(row['単勝確率']) >= 5
@@ -3637,7 +3669,7 @@ def _run_output(grouped, output_csv, excel_path):
                             _nv(row.get(KISHU_DEV_COL)),
                             str(row['展開']),
                             _nv(row['前売オッズ']), _nv(row['人気オッズ']),
-                            _nv(row['軸馬指数']), _nv(row['紐馬指数']), row['印'],
+                            _nv(row['単指数']), _nv(row['紐馬指数']), row['印'],
                             pop,
                             round(float(row['単勝オッズ']), 1),
                             round(float(row['単勝確率']), 1),
@@ -3945,7 +3977,7 @@ def _run_output(grouped, output_csv, excel_path):
                     title = f"{name[0]}  {_dist_txt(name[1])} {name[2]}R ({name[3] or '-'}),,,,,,,,,,,, "
                     f.write(title + '\n')
 
-                    f.write('馬番,馬名,騎手,' + KISHU_DEV_LABEL + ',展開,前売オッズ,人気オッズ,軸馬指数,紐馬指数,印,単勝人気,単勝オッズ,単勝確率,複勝確率,単勝期待値,統計印,統計勝率,オッズ勝率\n')
+                    f.write('馬番,馬名,騎手,' + KISHU_DEV_LABEL + ',展開,前売オッズ,人気オッズ,単指数,紐馬指数,印,単勝人気,単勝オッズ,単勝確率,複勝確率,単勝期待値,統計印,統計勝率,オッズ勝率\n')
 
                     unfold_map = {'逃': '逃げ', '先': '先行', '差': '差し', '追': '追込', '中': '中団', '捲': '捲り', 'マ': 'マーク'}
                     for _, row in analysis['table'].iterrows():
@@ -3965,7 +3997,7 @@ def _run_output(grouped, output_csv, excel_path):
                             _c1(row[KISHU_DEV_COL]) if KISHU_DEV_COL in row.index else '',
                             unfold_str,
                             _c1(row['前売オッズ']), _c1(row['人気オッズ']),
-                            _c1(row['軸馬指数']), _c1(row['紐馬指数']), row['印'],
+                            _c1(row['単指数']), _c1(row['紐馬指数']), row['印'],
                             int(row['単勝人気']) if not pd.isna(row['単勝人気']) else '',
                             float(row['単勝オッズ']),
                             float(row['単勝確率']), float(row['複勝確率']), row['単勝期待値'],
@@ -3979,10 +4011,10 @@ def _run_output(grouped, output_csv, excel_path):
 
                     f.write(f'軸馬: {axis_ban_str}番 {axis_name_str},,,,,,,,,,,,,\n')
 
-                    is_iron_horse = '単90以上鉄板馬' in str(analysis.get('axis_class', ''))
+                    is_iron_horse = _axis_is_iron(analysis)
                     axis_line = f'軸の分析値: {analysis["axis_analysis"]}/100  妙味軸度: {analysis["myomi_axis_score"]}点  軸z-score: {analysis.get("axis_zscore", 0):.2f}'
                     if is_iron_horse:
-                        axis_line += ' ★単90以上鉄板馬'
+                        axis_line += ' ★単指数90以上(鉄板クラス)'
                     if analysis.get('high_confidence', False):
                         axis_line += ' 勝負高信頼'
                     f.write(axis_line + ',,,,,,,,,,,,,\n')
@@ -4007,7 +4039,7 @@ def _run_output(grouped, output_csv, excel_path):
                     f.write(',,,,,,,,,,,,,\n')
                     f.write('買い目,,,,,,,,,,,,,\n')
 
-                    is_iron_horse = '単90以上鉄板馬' in str(analysis.get('axis_class', ''))
+                    is_iron_horse = _axis_is_iron(analysis)
                     _force_ref = analysis.get('force_reference', False)  # v132
 
                     if analysis['tan_recs']:
@@ -4667,7 +4699,7 @@ def run_gui():
         ('ev',   '期待値',    60,  'e',      '単勝期待値'),
         ('ti',   '前売',      58,  'e',      '前売オッズ'),     # ★v137_001 補正前単勝オッズ
         ('fi',   '人気O',     58,  'e',      '人気オッズ'),     # ★v137_001 人気オッズ
-        ('ens',  '軸馬指数',  70,  'e',      '軸馬指数'),
+        ('ens',  '単指数',  70,  'e',      '単指数'),
         ('himo', '紐馬指数',  70,  'e',      '紐馬指数'),
         ('smk',  '統計印',    52,  'center', None),        # ★v136_019
         ('sp',   '統計%',     60,  'e',      '統計勝率'),
@@ -5097,7 +5129,7 @@ def run_gui():
                 _fmt(row.get('単勝期待値'), 0),
                 _fmt(row.get('前売オッズ'), 1),
                 _fmt(row.get('人気オッズ'), 1),
-                _fmt(row.get('軸馬指数'), 1),
+                _fmt(row.get('単指数'), 1),
                 _fmt(row.get('紐馬指数'), 1),
                 str(row.get('統計印', '') or ''),
                 _fmt(row.get('統計勝率'), 1, ''),
