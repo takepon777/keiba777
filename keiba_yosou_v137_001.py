@@ -19,7 +19,10 @@
 #     ・オッズ勝率 = 補正前の単勝オッズ(1/オッズ)をレース内で正規化(ODDS_PROB_POWER で人気薄の割引も可)
 #     ・統計勝率   = 出馬表HTMLの統計モデル(bado_stat_model)
 #     ・単勝確率   = オッズ勝率^W_ODDS × 統計勝率^W_STAT をレース内で正規化(対数線形の融合)
-#       統計勝率が無いレースはオッズ勝率のみ(注意書きを出す)。
+#       W_ODDS/W_STAT の既定は 0.75/0.50(2026/09/17〜29の506Rで対数損失を最小化。旧 0.70/0.30 は平たすぎた)。
+#       統計勝率が無いレースはオッズ勝率^1.10(ENS_ODDS_ONLY_POWER。注意書きを出す)。
+#       単勝確率を使う基準値(軸級・信頼度・投資/有力/見送り・単指数90・本線条件・穴・色分け)は、
+#       尖らせ前と同じレースが選ばれるよう再調整済み(各定数のコメントに旧値)。
 #     ・複勝確率/連対率/馬連・ワイドの的中率 = 単勝確率から Harville 型で計算。2着・3着は
 #       確率を λ2=0.81/λ3=0.65 乗して割り引く(人気馬が2・3着に残る確率の過大評価を抑える補正)。
 #
@@ -37,17 +40,18 @@
 #   【紐馬指数】(新ロジック・0〜100、レース内で最も紐向きの馬=100)
 #     紐は『◎が勝ったときに2・3着に来る馬』なので、(複勝確率−単勝確率)=2〜3着に来る確率を土台に、
 #     市場より来ると見ている分(複勝確率 ÷ オッズ勝率から見た複勝確率)の妙味を √ で掛ける。
-#   【単指数】(100点満点・90以上=鉄板クラス) = 単勝確率を 100*(1-10^(-p/0.55)) で換算(単勝確率55%=90点)。
+#   【単指数】(100点満点・90以上=鉄板クラス) = 単勝確率を 100*(1-10^(-p/0.66)) で換算(単勝確率66%=90点)。
 #     ◎は従来どおり連対確率(2着以内に来る確率)1位。○▲△ は v136_010 の方式
-#     (◎との馬連確率 × 妙味、λ=2)。穴 = 補正前人気4〜9位で 単勝確率がオッズ勝率の1.3倍以上・複勝確率25%以上。
+#     (◎との馬連確率 × 妙味、λ=2)。穴 = 補正前人気4〜9位で 単勝確率がオッズ勝率の1.27倍以上・複勝確率25%以上。
 #
 #   【本線枠(新条件・未検証)】旧 UR1/UR2/WD1 は(旧)外部AIの単指数90を使っていたため廃止し、その役を
 #     『統計勝率』(オッズと独立した評価)に置き換えた同じ形の条件にした。成績の裏付けはまだ無い。
-#       EU1 馬連① 軸=単勝確率最大(45%以上)・統計勝率35%以上・予想オッズ1.9倍以下 × 単勝確率8以上→紐馬指数1位
+#       (以下の確率の基準値は ENS_W_ODDS/STAT=0.75/0.50 に尖らせた後の値。旧 0.70/0.30 では 45/50/50・8/45/40/15)
+#       EU1 馬連① 軸=単勝確率最大(52%以上)・統計勝率35%以上・予想オッズ1.9倍以下 × 単勝確率6.5以上→紐馬指数1位
 #       EU2 馬連② 同じ軸で予想オッズ1.4倍以下 × 人気3以内&紐馬指数50以上→紐馬指数1位
-#       EW1 ワイド① 軸=単勝確率50%以上の最大・人気1・統計勝率50%以上 × 複勝確率45以上&統計勝率10以上→紐馬指数1位
-#     次点本線枠(表示のみ): XW1 ワイド(EU1軸 × 複勝確率40以上&予想オッズ30倍以内)/
-#                           XU1 馬連(単勝確率50%以上最大・予想オッズ1.9倍以下 × 単勝確率15以上&紐馬指数60以上)
+#       EW1 ワイド① 軸=単勝確率62%以上の最大・人気1・統計勝率50%以上 × 複勝確率50以上&統計勝率10以上→紐馬指数1位
+#     次点本線枠(表示のみ): XW1 ワイド(EU1軸 × 複勝確率42.5以上&予想オッズ30倍以内)/
+#                           XU1 馬連(単勝確率58%以上最大・予想オッズ1.9倍以下 × 単勝確率13以上&紐馬指数60以上)
 #     参考予想(◎→○▲△ 馬連・ワイド各3点)・統計予想・統計裏付け(軸の統計勝率50%以上)は従来どおり表示。
 #     観察条件 ST1〜ST6 は旧軸に依存するため停止。軸級・信頼度・レース分類は ◎ の単勝確率/複勝確率で判定。
 #
@@ -130,9 +134,14 @@ GZ_MAX_POINTS     = _gz_env_num('GZ_MAX_POINTS', 0, int)
 # ══════════════════════════════════════════════════════════════════
 # オッズ勝率 ∝ (1/補正前オッズ)^ODDS_PROB_POWER。1.0=そのまま正規化 / >1 で人気薄をより割り引く。
 ODDS_PROB_POWER = _gz_env_num('ODDS_PROB_POWER', 1.0, float)
-# 単勝確率 ∝ オッズ勝率^ENS_W_ODDS × 統計勝率^ENS_W_STAT(対数線形の融合。和=1で較正を保つ)
-ENS_W_ODDS = _gz_env_num('ENS_W_ODDS', 0.70, float)
-ENS_W_STAT = _gz_env_num('ENS_W_STAT', 0.30, float)
+# 単勝確率 ∝ オッズ勝率^ENS_W_ODDS × 統計勝率^ENS_W_STAT(対数線形の融合)
+#   ★v137_001 最適化: 2026/09/17〜29の506R・5,178頭で勝ち馬の対数損失を最小化した値。
+#     旧 0.70/0.30(和=1)は本命を低く・大穴を高く見積もる(30〜40%帯の予測34.7%に対し実際44.8%)ため、
+#     統計比率0.4〜0.5・合計約1.25に尖らせた。損失 1.6729→1.6503(差-0.023, 95%CI -0.039〜-0.005)。
+ENS_W_ODDS = _gz_env_num('ENS_W_ODDS', 0.75, float)
+ENS_W_STAT = _gz_env_num('ENS_W_STAT', 0.50, float)
+# 統計勝率が無いレースはオッズ勝率だけで予想する。同じ検証での最適な尖り(オッズ勝率^1.10)。
+ENS_ODDS_ONLY_POWER = _gz_env_num('ENS_ODDS_ONLY_POWER', 1.10, float)
 # 2着・3着の割引(Harville の拡張。Lo & Bacon-Shone の推定値に近い値)
 PLACE_LAMBDA2 = _gz_env_num('PLACE_LAMBDA2', 0.81, float)
 PLACE_LAMBDA3 = _gz_env_num('PLACE_LAMBDA3', 0.65, float)
@@ -157,7 +166,7 @@ JOCKEY_LOO_SHRINK = 2.0          # 騎手の他の騎乗馬の人気を 0(平均
 HIMO_VALUE_POWER = _gz_env_num('HIMO_VALUE_POWER', 0.5, float)
 # 穴印: 補正前人気がこの範囲 & 単勝確率/オッズ勝率 >= ANA_RATIO_MIN & 複勝確率 >= ANA_PLACE_MIN
 ANA_POP_RANGE = (4, 9)
-ANA_RATIO_MIN = 1.30
+ANA_RATIO_MIN = 1.27      # ★v137_001: 尖らせ後も旧(1.30)と同じ件数になるよう調整
 ANA_PLACE_MIN = 25.0
 KISHU_DEV_COL   = '騎手指数'      # ★v137_001: 予想表の騎手の列(新ロジックの騎手指数)
 KISHU_DEV_LABEL = '騎手指数'
@@ -492,27 +501,31 @@ JUDGE_TOP3_SLOPE = 0.6374
 JUDGE_TOP3_INTERCEPT = -0.1356
 # 軸級: ◎の推定勝率(%)の下限。これ未満は D級
 #   実績(7/16〜9/19 2,324R): S 勝率62.0%/複勝圏88.1%, A 42.6/77.6, B 31.2/67.0, C 27.8/62.4, D 21.1/49.9
-JUDGE_GRADE_CUTS = [('S', 50.0), ('A', 40.0), ('B', 31.0), ('C', 24.0)]
+# ★v137_001: 単勝確率のアンサンブル最適化(尖らせ)に合わせ、同じレースが同じ軸級になるよう分位で再調整。
+#   旧 S50/A40/B31/C24 → 506Rで軸級の一致84.6%(S12.3%・A16.4%・B27.0%・C24.3%の構成比を維持)。
+JUDGE_GRADE_CUTS = [('S', 58.5), ('A', 48.0), ('B', 36.0), ('C', 27.0)]
 # 信頼度: 数値 = ◎の推定3着内率(%)。区分境界(色は旧区分と同じ)
-#   実績(7/16〜9/19 2,324R): 非常に高い 88.6%, 高い 78.5, 中程度 68.2, 低い 59.4, 非常に低い 48.5
+#   実績(7/16〜9/19 2,324R・旧確率): 非常に高い 88.6%, 高い 78.5, 中程度 68.2, 低い 59.4, 非常に低い 48.5
+#   ★v137_001: 尖らせ後の複勝確率に合わせて 83/74/64/55 → 90/82/70/60 (旧と同じ構成比・一致87.2%)
 JUDGE_CONF_TIERS = [
-    (83, '非常に高い', 'FFFFFF', '375623', 'C6EFCE'),
-    (74, '高い',       'FFFFFF', '1F4E79', 'BDD7EE'),
-    (64, '中程度',     '000000', 'FFEB9C', 'FFF2CC'),
-    (55, '低い',       'FFFFFF', 'ED7D31', 'F8CBAD'),
+    (90, '非常に高い', 'FFFFFF', '375623', 'C6EFCE'),
+    (82, '高い',       'FFFFFF', '1F4E79', 'BDD7EE'),
+    (70, '中程度',     '000000', 'FFEB9C', 'FFF2CC'),
+    (60, '低い',       'FFFFFF', 'ED7D31', 'F8CBAD'),
     (-1, '非常に低い', 'FFFFFF', 'C00000', 'FFC7CE'),
 ]
 # レース分類(上から順に判定)
-JUDGE_CAT_INVEST_WIN = 60.0     # 投資: 推定勝率60%以上 かつ
-JUDGE_CAT_INVEST_TOP3 = 88.0    #       推定3着内率88%以上
-JUDGE_CAT_STRONG_TOP3 = 76.0    # 有力: 推定3着内率76%以上
+#   ★v137_001: 尖らせ後の確率に合わせて再調整(旧 60/88/76/55 と同じ構成比: 投資6.3%・有力+約27%)
+JUDGE_CAT_INVEST_WIN = 69.5     # 投資: 推定勝率69.5%以上 かつ
+JUDGE_CAT_INVEST_TOP3 = 94.0    #       推定3着内率94%以上
+JUDGE_CAT_STRONG_TOP3 = 83.5    # 有力: 推定3着内率83.5%以上
 # ★v136_009: 2頭軸の判定は停止。9月(未使用データ)で ◎-対抗 馬連的中 1/20R(予測35%)、
 #   7/16〜9/19 通算でも 26%(85R)と有力レース(約30%)を下回り、区分として機能しなかった。
 #   該当していたレースは 標準レース(推定3着内率55%未満なら見送り=表示は標準) になる。
 JUDGE_CAT_TWO_ENABLE = False    # True で再開(下の2つの閾値を使用)
 JUDGE_CAT_TWO_Q = 30.0          # 2頭軸: ◎-対抗の馬連確率30%以上 かつ
 JUDGE_CAT_TWO_RIVAL = 25.0      #        対抗のブレンド勝率25%以上
-JUDGE_CAT_SKIP_TOP3 = 55.0      # 見送り: 推定3着内率55%未満(表示は _RACE_CAT_MASK で標準レース)
+JUDGE_CAT_SKIP_TOP3 = 60.5      # 見送り: 推定3着内率60.5%未満(表示は _RACE_CAT_MASK で標準レース)
 
 
 def _judge_harville_top3(p, i):
@@ -1041,7 +1054,7 @@ def judge_grade_letter(est_win):
 def judge_race_cat(est_win, est_top3, quinella, rival_win):
     """(race_cat, recommended_action) を返す。ラベルは従来と同一。"""
     if est_win >= JUDGE_CAT_INVEST_WIN and est_top3 >= JUDGE_CAT_INVEST_TOP3:
-        return '投資レース', '軸の信頼度が特に高いレース(推定3着内率88%以上)。回収率100%超の保証はない'
+        return '投資レース', '軸の信頼度が特に高いレース(推定3着内率%g%%以上)。回収率100%%超の保証はない' % JUDGE_CAT_INVEST_TOP3
     if est_top3 >= JUDGE_CAT_STRONG_TOP3:
         return '有力レース', '軸が堅い。軸から馬連・ワイド中心'
     if JUDGE_CAT_TWO_ENABLE and quinella >= JUDGE_CAT_TWO_Q and rival_win >= JUDGE_CAT_TWO_RIVAL:
@@ -1192,12 +1205,21 @@ NSL_TIER_REFERENCE_ONLY = set()     # 参考強制する信頼度区分: なし
 #   紐 = 条件を満たす馬のうち紐馬指数1位の1頭。軸が条件を満たさなければ見送り(繰り上げなし)。
 #   p/pt/hit/vroi 等の検証統計はまだ無いので 0。
 # ══════════════════════════════════════════════════════════════════
-ENS_AXIS_WIN_MIN = 45.0      # EU1/EU2 の軸: 単勝確率の下限(%)
-ENS_AXIS_STAT_MIN = 35.0     # EU1/EU2 の軸: 統計勝率の下限(%)
+# ★v137_001: 単勝確率の尖らせ(ENS_W_*)に合わせ、旧基準と同じレース・同じ紐が選ばれるよう再調整した値。
+#   (旧 軸45%/50%/50%, 紐 単勝確率8/複勝確率45/複勝確率40/単勝確率15 → 506Rで発火の一致 EU1 82%・EU2 92%・XW1 84%・EW1 87%)
+ENS_AXIS_WIN_MIN = 52.0      # EU1/EU2/XW1 の軸: 単勝確率の下限(%)  旧45
+ENS_AXIS_WIN_MIN_EW = 62.0   # EW1 の軸: 単勝確率の下限(%)           旧50
+ENS_AXIS_WIN_MIN_XU = 58.0   # XU1 の軸: 単勝確率の下限(%)           旧50
+ENS_AXIS_STAT_MIN = 35.0     # EU1/EU2 の軸: 統計勝率の下限(%)(統計勝率は尖らせの影響を受けないので据え置き)
+ENS_EU1_PARTNER_WIN = 6.5    # EU1 の紐: 単勝確率の下限(%)           旧8
+ENS_EW1_PARTNER_PLACE = 50.0 # EW1 の紐: 複勝確率の下限(%)           旧45
+ENS_XW1_PARTNER_PLACE = 42.5 # XW1 の紐: 複勝確率の下限(%)           旧40
+ENS_XU1_PARTNER_WIN = 13.0   # XU1 の紐: 単勝確率の下限(%)           旧15
+_w45, _w50e, _w50x = ('%g' % ENS_AXIS_WIN_MIN), ('%g' % ENS_AXIS_WIN_MIN_EW), ('%g' % ENS_AXIS_WIN_MIN_XU)
 GZ_COND_DEFS = {
     'EU1': dict(kind='umaren', tier='main', axis='E:ens45max&st35&odds<1.95', order=0,
-                label='EU1 馬連① 軸[単勝確率45%+の最大&統計35%+&予想オッズ1.9以下]×単勝確率8以上の紐馬指数1位(新・未検証)',
-                short='馬連① 軸[単勝確率最大45%+ & 統計35%+ & 予想オッズ1.9以下] × 単勝確率8以上→紐馬指数1位',
+                label='EU1 馬連① 軸[単勝確率%s%%+の最大&統計35%%+&予想オッズ1.9以下]×単勝確率%g以上の紐馬指数1位(新・未検証)' % (_w45, ENS_EU1_PARTNER_WIN),
+                short='馬連① 軸[単勝確率最大%s%%+ & 統計35%%+ & 予想オッズ1.9以下] × 単勝確率%g以上→紐馬指数1位' % (_w45, ENS_EU1_PARTNER_WIN),
                 bg='#9fd8a8', fg='#14532d', fill='9FD8A8',
                 p=0.0, pt=0.0, lo=0.0, hit=0, troi=0.0, vroi=0.0, vn=0, vhit=0, avg=0),
     'EU2': dict(kind='umaren', tier='main', axis='E:ens45max&st35&odds<1.45', order=1,
@@ -1206,8 +1228,8 @@ GZ_COND_DEFS = {
                 bg='#7cc98b', fg='#0f3d21', fill='7CC98B',
                 p=0.0, pt=0.0, lo=0.0, hit=0, troi=0.0, vroi=0.0, vn=0, vhit=0, avg=0),
     'EW1': dict(kind='wide', tier='main', axis='E:ens50max&pop1&st50', order=0,
-                label='EW1 ワイド① 軸[単勝確率50%+の最大&人気1&統計50%+]×複勝確率45以上&統計10%以上の紐馬指数1位(新・未検証)',
-                short='ワイド① 軸[単勝確率50%+最大 & 人気1 & 統計50%+] × 複勝確率45以上&統計10%以上→紐馬指数1位',
+                label='EW1 ワイド① 軸[単勝確率%s%%+の最大&人気1&統計50%%+]×複勝確率%g以上&統計10%%以上の紐馬指数1位(新・未検証)' % (_w50e, ENS_EW1_PARTNER_PLACE),
+                short='ワイド① 軸[単勝確率%s%%+最大 & 人気1 & 統計50%%+] × 複勝確率%g以上&統計10%%以上→紐馬指数1位' % (_w50e, ENS_EW1_PARTNER_PLACE),
                 bg='#ffcf70', fg='#6b3d00', fill='FFCF70',
                 p=0.0, pt=0.0, lo=0.0, hit=0, troi=0.0, vroi=0.0, vn=0, vhit=0, avg=0),
 }
@@ -1225,17 +1247,17 @@ REF_HIMO_BET_TYPES = ('umaren', 'wide')
 JITEN_ENABLE = True
 JITEN_MAP_DEFS = [
     dict(tag='XW1', kind='wide', axis='E:ens45max&st35&odds<1.95',
-         atoms=[('S:複勝確率', 40.0, '複勝確率40以上'), ('_odds_le', 30.0, '予想オッズ30倍以内')],
+         atoms=[('S:複勝確率', ENS_XW1_PARTNER_PLACE, '複勝確率%g以上' % ENS_XW1_PARTNER_PLACE), ('_odds_le', 30.0, '予想オッズ30倍以内')],
          top1_himo=True, src='v137', typ='観察', roi=0.0, hit=0.0, n=0),
     dict(tag='XU1', kind='umaren', axis='E:ens50max&odds<1.95',
-         atoms=[('S:単勝確率', 15.0, '単勝確率15以上'), ('S:紐馬指数', 60.0, '紐馬指数60以上')],
+         atoms=[('S:単勝確率', ENS_XU1_PARTNER_WIN, '単勝確率%g以上' % ENS_XU1_PARTNER_WIN), ('S:紐馬指数', 60.0, '紐馬指数60以上')],
          top1_himo=True, src='v137', typ='観察', roi=0.0, hit=0.0, n=0),
 ]
 _AXIS_LABEL = {
-    'E:ens45max&st35&odds<1.95': '軸[単勝確率最大45%+ & 統計35%+ & 予想オッズ1.9以下]',
-    'E:ens45max&st35&odds<1.45': '軸[単勝確率最大45%+ & 統計35%+ & 予想オッズ1.4以下]',
-    'E:ens50max&pop1&st50': '軸[単勝確率50%+最大 & 人気1 & 統計50%+]',
-    'E:ens50max&odds<1.95': '軸[単勝確率50%+最大 & 予想オッズ1.9以下]',
+    'E:ens45max&st35&odds<1.95': '軸[単勝確率最大%s%%+ & 統計35%%+ & 予想オッズ1.9以下]' % _w45,
+    'E:ens45max&st35&odds<1.45': '軸[単勝確率最大%s%%+ & 統計35%%+ & 予想オッズ1.4以下]' % _w45,
+    'E:ens50max&pop1&st50': '軸[単勝確率%s%%+最大 & 人気1 & 統計50%%+]' % _w50e,
+    'E:ens50max&odds<1.95': '軸[単勝確率%s%%+最大 & 予想オッズ1.9以下]' % _w50x,
 }
 
 
@@ -1291,17 +1313,17 @@ def odds_win_probs(raw_odds, p_fill):
 
 
 def ensemble_win_probs(p_odds, p_stat):
-    """単勝確率 ∝ オッズ勝率^ENS_W_ODDS × 統計勝率^ENS_W_STAT(p_stat が None ならオッズ勝率のみ)。"""
+    """単勝確率 ∝ オッズ勝率^ENS_W_ODDS × 統計勝率^ENS_W_STAT(p_stat が None ならオッズ勝率^ENS_ODDS_ONLY_POWER)。"""
     p_odds = _normalize(p_odds)
     if p_stat is None:
-        return p_odds
+        return _normalize(np.power(np.clip(p_odds, 1e-9, None), ENS_ODDS_ONLY_POWER))
     p_stat = _normalize(p_stat)
     lz = (ENS_W_ODDS * np.log(np.clip(p_odds, 1e-6, None))
           + ENS_W_STAT * np.log(np.clip(p_stat, 1e-6, None)))
     return _normalize(np.exp(lz - lz.max()))
 
 
-TAN_IDX_IRON_WP = _gz_env_num('TAN_IDX_IRON_WP', 55.0, float)   # 単勝確率(%)がこの値で単指数=90(鉄板クラス)
+TAN_IDX_IRON_WP = _gz_env_num('TAN_IDX_IRON_WP', 66.0, float)   # 単勝確率(%)がこの値で単指数=90(鉄板クラス)
 TAN_IDX_IRON = 90.0
 
 
@@ -1315,8 +1337,9 @@ def _axis_is_iron(analysis):
 
 def tan_index(p_win):
     """単指数(100点満点)。単勝確率p(0〜1)を 100*(1-10^(-p/p90)) で換算(p90=TAN_IDX_IRON_WP/100)。
-    単勝確率55%で90点=鉄板クラス(2026/09/22〜29の360Rで55%以上は複勝27/27的中・単勝70%)。
-    30%→71点 / 45%→85点 / 70%→95点。単調増加なので単指数の大小は単勝確率の大小と同じ。"""
+    既定は単勝確率66%で90点=鉄板クラス(尖らせ最適化後の確率。旧確率の55%と同じ約8%のレースが該当し、
+    2026/09/17〜29の506Rで◎の単勝的中は約76%・複勝はほぼ全的中)。
+    30%→ 約64点 / 45%→ 約79点 / 80%→ 約94点。単調増加なので単指数の大小は単勝確率の大小と同じ。"""
     p = np.clip(np.asarray(p_win, dtype=float), 0.0, None)
     return 100.0 * (1.0 - np.power(10.0, -p / (TAN_IDX_IRON_WP / 100.0)))
 
@@ -1572,14 +1595,15 @@ def generate_analysis(group):
         return p_stat is not None and _ge(i, '統計勝率', thr)
 
     _ax45 = _top_by_win(ENS_AXIS_WIN_MIN)
-    _ax50 = _top_by_win(50.0)
+    _ax_ew = _top_by_win(ENS_AXIS_WIN_MIN_EW)
+    _ax_xu = _top_by_win(ENS_AXIS_WIN_MIN_XU)
     _ax_eu = _ax45 if (_ax45 is not None and _stat_ge(_ax45, ENS_AXIS_STAT_MIN)) else None
     _AXIS = {
         'E:ens45max&st35&odds<1.95': (_ax_eu if _ax_eu is not None and _odds_lt(_ax_eu, 1.95) else None),
         'E:ens45max&st35&odds<1.45': (_ax_eu if _ax_eu is not None and _odds_lt(_ax_eu, 1.45) else None),
-        'E:ens50max&pop1&st50': (_ax50 if _ax50 is not None and _pop_of(_ax50) == 1
-                                 and _stat_ge(_ax50, 50.0) else None),
-        'E:ens50max&odds<1.95': (_ax50 if _ax50 is not None and _odds_lt(_ax50, 1.95) else None),
+        'E:ens50max&pop1&st50': (_ax_ew if _ax_ew is not None and _pop_of(_ax_ew) == 1
+                                 and _stat_ge(_ax_ew, 50.0) else None),
+        'E:ens50max&odds<1.95': (_ax_xu if _ax_xu is not None and _odds_lt(_ax_xu, 1.95) else None),
     }
 
     def _top1_himo(cands):
@@ -1588,10 +1612,10 @@ def generate_analysis(group):
         return [min(cands, key=lambda i: (-(_v(i, '紐馬指数') or -1.0), group.at[i, '番']))]
 
     _PARTNER = {
-        'EU1': lambda ax: _top1_himo([i for i in range(n) if i != ax and _ge(i, '単勝確率', 8.0)]),
+        'EU1': lambda ax: _top1_himo([i for i in range(n) if i != ax and _ge(i, '単勝確率', ENS_EU1_PARTNER_WIN)]),
         'EU2': lambda ax: _top1_himo([i for i in range(n) if i != ax and _pop_of(i) <= 3
                                       and _ge(i, '紐馬指数', 50.0)]),
-        'EW1': lambda ax: _top1_himo([i for i in range(n) if i != ax and _ge(i, '複勝確率', 45.0)
+        'EW1': lambda ax: _top1_himo([i for i in range(n) if i != ax and _ge(i, '複勝確率', ENS_EW1_PARTNER_PLACE)
                                       and _stat_ge(i, 10.0)]),
     }
     assert set(_PARTNER) == set(GZ_COND_DEFS)
@@ -2748,8 +2772,8 @@ def build_html_nar(html_races, src_name):
             jk_cls = ' jk-hot' if _ki_hot else ''
             _is_ana = ('穴' in mk)                      # ★011 穴条件該当馬
             # 各色マーク
-            tan_cls = 'hi-tan' if wp >= 40 else 'prob tan'      # 単勝確率40%+
-            fuku_cls = 'hi-fuku' if fp >= 70 else 'prob fuku'   # 複勝確率70%+
+            tan_cls = 'hi-tan' if wp >= 48 else 'prob tan'      # 単勝確率48%+(尖らせ前の40%+相当)
+            fuku_cls = 'hi-fuku' if fp >= 77 else 'prob fuku'   # 複勝確率77%+(尖らせ前の70%+相当)
             idx_cls = ' class="hi-idx"' if _val_hi else ''       # 単勝率 >= オッズ勝率×1.15
             ev_cls = ' class="evhi"' if ev >= 110 else ''        # 色マーク付き=太字(110+のみ)
             _tr_cls = ('axis' if mk == '◎' else '') + (' anaba' if _is_ana else '')
@@ -3290,8 +3314,8 @@ def build_html_note(html_races, src_name):
                 + '<td class="sty s-%s">%s</td>' % (_h(style[:1]), _h(style))
                 + '<td class="num g1">%s</td>' % pop_s
                 + '<td class="num">%s</td>' % (('%.1f' % od) if od > 0 else '-')
-                + '<td class="g1">%s</td>' % _note_bar(wp, 'w' + (' hi' if wp >= 40 else ''), 60.0)
-                + '<td>%s</td>' % _note_bar(fp, 'p' + (' hi' if fp >= 70 else ''), 100.0)
+                + '<td class="g1">%s</td>' % _note_bar(wp, 'w' + (' hi' if wp >= 48 else ''), 72.0)
+                + '<td>%s</td>' % _note_bar(fp, 'p' + (' hi' if fp >= 77 else ''), 100.0)
                 + '<td class="num%s">%.0f</td>' % (' hot' if ev >= 110 else '', ev)
                 + '<td class="num g1%s">%s</td>' % (' anav' if is_ana else '',
                                                     ('%.1f' % ens) if ens is not None else '-')
@@ -3447,7 +3471,7 @@ def build_html_note(html_races, src_name):
         '<dt>単勝</dt><dd>予想オッズ。前売の単勝オッズと、人気になりそうな要素(騎手・成績・当地実績・最高タイム)から'
         '推定したオッズを合わせたもの。人気はこの順番です。</dd>'
         '<dt>期待値</dt><dd>勝率×予想オッズ。100を超えるほど、オッズに対して割安な馬です。</dd>'
-        '<dt>単指数</dt><dd>単勝確率を100点満点に換算した点数。90以上は鉄板クラス(単勝確率55%以上)。◎は連対確率1位の馬です。<span class="anav">橙色</span>は穴候補の馬。</dd>'
+        '<dt>単指数</dt><dd>単勝確率を100点満点に換算した点数。90以上は鉄板クラス(単勝確率' + ('%g' % TAN_IDX_IRON_WP) + '%以上)。◎は連対確率1位の馬です。<span class="anav">橙色</span>は穴候補の馬。</dd>'
         + ('<dt>○▲△</dt><dd>◎との組み合わせで、当たりやすさに加えて「配当の妙味」を重視して選んだ3頭。参考買い目(◎から馬連・ワイド各3点)の相手です。</dd>' if REF_NEW_LOGIC else '') +
         '<dt>紐馬</dt><dd>紐馬指数(0〜100)。2〜3着に来る確率に、オッズより来ると見ている分の妙味を掛けたもの'
         '(そのレースで最も紐向きの馬が100)。推奨買い目の相手選びに使います。</dd>'
@@ -3625,7 +3649,7 @@ def _run_output(grouped, output_csv, excel_path):
                             axis_name_str = axis_row_local['馬名'].iloc[0]
                     is_iron_horse = _axis_is_iron(analysis)
 
-                    # ★v137_001: 鉄板馬 = 単指数90以上(単勝確率55%以上)
+                    # ★v137_001: 鉄板馬 = 単指数90以上(単勝確率 TAN_IDX_IRON_WP 以上)
                     iron_mask = (analysis['table']['単指数'] >= TAN_IDX_IRON)
                     has_iron = bool(iron_mask.any())
                     iron_bans = set(int(b) for b in analysis['table'].loc[iron_mask, '番'].dropna().astype(int).tolist()) if has_iron else set()
@@ -3693,7 +3717,7 @@ def _run_output(grouped, output_csv, excel_path):
                                 c.fill = new_s_axis_fill
                             if col_idx == 6 and _val_hi:
                                 c.fill = high_single_fill
-                            if col_idx == 9 and isinstance(v, (int, float)) and v >= 65:
+                            if col_idx == 9 and isinstance(v, (int, float)) and v >= 58:
                                 c.fill = himba_idx_fill
                             if col_idx == 10 and v == '◎':
                                 c.fill = iron_red
@@ -3705,9 +3729,9 @@ def _run_output(grouped, output_csv, excel_path):
                                 c.fill = PatternFill(start_color="CFE2F3", end_color="CFE2F3", fill_type="solid")
                             if col_idx == 12 and isinstance(v, (int, float)) and v <= 9.9:
                                 c.fill = low_odds_fill
-                            if col_idx == 13 and isinstance(v, (int, float)) and v >= 40:
+                            if col_idx == 13 and isinstance(v, (int, float)) and v >= 48:
                                 c.fill = good_green
-                            if col_idx == 14 and fuku_prob >= 60:
+                            if col_idx == 14 and fuku_prob >= 65:
                                 c.fill = PatternFill(start_color="B6D7A8", end_color="B6D7A8", fill_type="solid")
                             if col_idx == 15 and isinstance(v, (int, float)) and v >= 100:
                                 c.fill = high_yellow
